@@ -12,8 +12,8 @@ from gi.repository import AyatanaAppIndicator3, GLib, Gtk
 
 from dictate.daemon import Daemon
 
-ICON_ACTIVE = "audio-input-microphone"
-ICON_PAUSED = "audio-input-microphone-muted"
+ICON_ACTIVE = "microphone-sensitivity-high-symbolic"
+ICON_PAUSED = "microphone-disabled-symbolic"
 
 
 class TrayIcon:
