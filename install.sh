@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
-# Install/update dictate as a system-wide tool via uv.
+# Install/update dictate into a standalone venv at ~/.local/share/dictate.
+# Uses --system-site-packages so GTK/gi bindings are available.
 # Re-run this script after pulling changes to update the installation.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_DIR="$HOME/.local/share/dictate"
+BIN_DIR="$HOME/.local/bin"
 DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 
+echo "Creating venv at $INSTALL_DIR ..."
+uv venv "$INSTALL_DIR/venv" --python python3 --system-site-packages --quiet
+
 echo "Installing dictate from $SCRIPT_DIR ..."
-uv tool install "$SCRIPT_DIR" --force
+uv pip install "$SCRIPT_DIR" --python "$INSTALL_DIR/venv/bin/python" --quiet
+
+echo "Linking binary ..."
+mkdir -p "$BIN_DIR"
+ln -sf "$INSTALL_DIR/venv/bin/dictate" "$BIN_DIR/dictate"
 
 echo "Installing desktop entry ..."
 mkdir -p "$DESKTOP_DIR"
