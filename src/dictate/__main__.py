@@ -2,7 +2,8 @@
 dictate — local voice-to-text for the terminal.
 
 Usage:
-    dictate                   Push-to-talk daemon (hold Right Ctrl)
+    dictate                   Push-to-talk with system tray icon
+    dictate --no-tray         Push-to-talk headless (no tray icon)
     dictate --once            One-shot: record until Enter, print to stdout
     dictate --once --copy     One-shot: record until Enter, copy to clipboard
     dictate --model small     Use a different whisper model
@@ -68,6 +69,10 @@ def main():
         help="One-shot mode: record until Enter, output text, exit",
     )
     parser.add_argument("--copy", action="store_true", help="One-shot: copy to clipboard (xclip)")
+    parser.add_argument(
+        "--no-tray", action="store_true",
+        help="Headless daemon mode (no system tray icon)",
+    )
     parser.add_argument("--model", default="base", help="Whisper model size (default: base)")
     parser.add_argument("--device", default="auto", help="Compute device: cpu, cuda, auto")
     parser.add_argument(
@@ -84,8 +89,10 @@ def main():
 
     if args.once:
         _run_once(stt, args)
+    elif args.no_tray:
+        _run_headless(stt)
     else:
-        _run_daemon(stt, args)
+        _run_tray(stt)
 
 
 def _run_once(stt: SpeechToText, args):
@@ -103,9 +110,15 @@ def _run_once(stt: SpeechToText, args):
     output_text(text.strip(), mode)
 
 
-def _run_daemon(stt: SpeechToText, args):
+def _run_headless(stt: SpeechToText):
     from dictate.daemon import Daemon
     Daemon(stt).run()
+
+
+def _run_tray(stt: SpeechToText):
+    from dictate.daemon import Daemon
+    from dictate.tray import TrayIcon
+    TrayIcon(Daemon(stt)).run()
 
 
 if __name__ == "__main__":
