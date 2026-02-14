@@ -43,7 +43,12 @@ class SpeechToText:
             logger.info("Model loaded")
         return self._model
 
-    def transcribe(self, audio: np.ndarray, language: str | None = None) -> str:
+    def transcribe(
+        self,
+        audio: np.ndarray,
+        language: str | None = None,
+        hotwords: str | None = None,
+    ) -> str:
         """Transcribe float32 16kHz audio to text."""
         segments, _info = self.model.transcribe(
             audio,
@@ -54,5 +59,6 @@ class SpeechToText:
                 min_silence_duration_ms=500,
                 speech_pad_ms=200,
             ),
+            hotwords=hotwords,
         )
         return " ".join(seg.text.strip() for seg in segments)

@@ -24,11 +24,12 @@ class Daemon:
         *,
         output: TextOutput,
         language: str | None = None,
+        hotwords: str | None = None,
     ):
         self.active = True
         self.language = language
         self.output = output
-        self.engine = DictationEngine(stt=stt, sample_rate=SAMPLE_RATE)
+        self.engine = DictationEngine(stt=stt, sample_rate=SAMPLE_RATE, hotwords=hotwords)
         self.recorder = SoundDeviceRecorder(sample_rate=SAMPLE_RATE)
 
         self._stop = threading.Event()

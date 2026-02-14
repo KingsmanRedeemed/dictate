@@ -28,10 +28,12 @@ class DictationEngine:
         stt: SpeechToText,
         sample_rate: int = 16000,
         min_duration_s: float = 0.3,
+        hotwords: str | None = None,
     ):
         self.stt = stt
         self.sample_rate = sample_rate
         self.min_duration_s = min_duration_s
+        self.hotwords = hotwords
 
     def duration_s(self, audio: np.ndarray) -> float:
         return len(audio) / self.sample_rate
@@ -46,7 +48,7 @@ class DictationEngine:
             return TranscriptionResult(status="too_short", duration_s=duration)
 
         try:
-            text = self.stt.transcribe(audio, language=language).strip()
+            text = self.stt.transcribe(audio, language=language, hotwords=self.hotwords).strip()
         except Exception as exc:  # noqa: BLE001
             return TranscriptionResult(
                 status="error",

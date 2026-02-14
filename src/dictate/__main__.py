@@ -15,6 +15,7 @@ import sys
 import threading
 
 from dictate.audio import AudioCaptureError, SoundDeviceRecorder
+from dictate.config import load_config
 from dictate.engine import DictationEngine
 from dictate.outputs import (
     BackendUnavailableError,
@@ -72,6 +73,10 @@ def main():
         "--language", default=None,
         help="Language code (e.g. en). Auto-detect if omitted",
     )
+    parser.add_argument(
+        "--hotwords", default=None,
+        help="Comma-separated words to boost recognition (e.g. 'OpenBao,Vikunja')",
+    )
     args = parser.parse_args()
 
     report = run_preflight(
@@ -88,6 +93,16 @@ def main():
             print(f"Preflight error: {error}", file=sys.stderr)
         sys.exit(2)
 
+    config = load_config()
+
+    # Merge CLI hotwords with config file hotwords
+    cli_hotwords = [w.strip() for w in args.hotwords.split(",") if w.strip()] if args.hotwords else []
+    all_hotwords = config.hotwords + cli_hotwords
+    hotwords_str = " ".join(all_hotwords) if all_hotwords else None
+
+    if hotwords_str:
+        print(f"Hotwords: {hotwords_str}", file=sys.stderr)
+
     stt = SpeechToText(model_size=args.model, device=args.device)
 
     print(f"Loading model ({args.model})...", file=sys.stderr)
@@ -99,16 +114,16 @@ def main():
     print("Ready.\n", file=sys.stderr)
 
     if args.once:
-        _run_once(stt, args)
+        _run_once(stt, args, hotwords=hotwords_str)
     elif args.no_tray:
-        _run_headless(stt, args)
+        _run_headless(stt, args, hotwords=hotwords_str)
     else:
-        _run_tray(stt, args)
+        _run_tray(stt, args, hotwords=hotwords_str)
 
 
-def _run_once(stt: SpeechToText, args):
+def _run_once(stt: SpeechToText, args, *, hotwords: str | None = None):
     recorder = SoundDeviceRecorder(sample_rate=SAMPLE_RATE)
-    engine = DictationEngine(stt=stt, sample_rate=SAMPLE_RATE)
+    engine = DictationEngine(stt=stt, sample_rate=SAMPLE_RATE, hotwords=hotwords)
 
     try:
         audio = record_until_enter(recorder)
@@ -141,7 +156,7 @@ def _run_once(stt: SpeechToText, args):
         print("Copied to clipboard", file=sys.stderr)
 
 
-def _run_headless(stt: SpeechToText, args):
+def _run_headless(stt: SpeechToText, args, *, hotwords: str | None = None):
     from dictate.daemon import Daemon
 
     try:
@@ -149,10 +164,10 @@ def _run_headless(stt: SpeechToText, args):
     except BackendUnavailableError as exc:
         print(f"Typing backend error: {exc}", file=sys.stderr)
         sys.exit(2)
-    Daemon(stt, output=output, language=args.language).run()
+    Daemon(stt, output=output, language=args.language, hotwords=hotwords).run()
 
 
-def _run_tray(stt: SpeechToText, args):
+def _run_tray(stt: SpeechToText, args, *, hotwords: str | None = None):
     from dictate.daemon import Daemon
     from dictate.tray import TrayIcon
 
@@ -161,7 +176,7 @@ def _run_tray(stt: SpeechToText, args):
     except BackendUnavailableError as exc:
         print(f"Typing backend error: {exc}", file=sys.stderr)
         sys.exit(2)
-    TrayIcon(Daemon(stt, output=output, language=args.language)).run()
+    TrayIcon(Daemon(stt, output=output, language=args.language, hotwords=hotwords)).run()
 
 
 if __name__ == "__main__":
