@@ -1,86 +1,97 @@
-"""Push-to-talk daemon. Holds model in memory, listens for Right Ctrl."""
+"""Push-to-talk daemon. Listens for Right Ctrl and runs shared dictation pipeline."""
 
-import subprocess
+from __future__ import annotations
+
+import queue
 import sys
 import threading
 
 import numpy as np
-import sounddevice as sd
 from pynput import keyboard
 
+from dictate.audio import AudioCaptureError, SoundDeviceRecorder
+from dictate.engine import DictationEngine, TranscriptionResult
+from dictate.outputs import TextOutput
 from dictate.stt import SpeechToText
 
 SAMPLE_RATE = 16000
 
 
 class Daemon:
-    def __init__(self, stt: SpeechToText):
-        self.stt = stt
+    def __init__(
+        self,
+        stt: SpeechToText,
+        *,
+        output: TextOutput,
+        language: str | None = None,
+    ):
         self.active = True
-        self.recording = False
-        self.chunks: list[np.ndarray] = []
-        self.stream: sd.InputStream | None = None
-        self._transcribe = threading.Event()
-        self._stop = threading.Event()
-        self._lock = threading.Lock()
-        self._listener: keyboard.Listener | None = None
+        self.language = language
+        self.output = output
+        self.engine = DictationEngine(stt=stt, sample_rate=SAMPLE_RATE)
+        self.recorder = SoundDeviceRecorder(sample_rate=SAMPLE_RATE)
 
-    def pause(self):
+        self._stop = threading.Event()
+        self._listener: keyboard.Listener | None = None
+        self._worker: threading.Thread | None = None
+        self._audio_queue: queue.Queue[np.ndarray | None] = queue.Queue()
+
+    def pause(self) -> None:
         """Stop listening for hotkey."""
         self.active = False
-        if self.recording:
-            self._stop_recording()
+        if self.recorder.is_recording:
+            self._finalize_recording()
 
-    def resume(self):
+    def resume(self) -> None:
         """Resume listening for hotkey."""
         self.active = True
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Clean shutdown."""
+        if self._stop.is_set():
+            return
+
         self._stop.set()
-        self._transcribe.set()  # unblock the transcription loop
+
+        if self.recorder.is_recording:
+            self._finalize_recording()
+
         if self._listener:
             self._listener.stop()
 
-    def _audio_callback(self, indata, frames, time, status):
-        if status:
-            print(f"  audio: {status}", file=sys.stderr)
-        with self._lock:
-            self.chunks.append(indata.copy())
+        self._audio_queue.put(None)
 
-    def _start_recording(self):
-        if self.recording or not self.active:
+    def _start_recording(self) -> None:
+        if self.recorder.is_recording or not self.active:
             return
-        self.recording = True
-        self.chunks = []
-        self.stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype="float32",
-            callback=self._audio_callback,
-        )
-        self.stream.start()
+
+        try:
+            self.recorder.start()
+        except AudioCaptureError as exc:
+            print(f"\r  Microphone error: {exc}", file=sys.stderr)
+            return
+
         print("\r  \033[91m● Recording...\033[0m", end="", file=sys.stderr, flush=True)
 
-    def _stop_recording(self):
-        if not self.recording:
+    def _finalize_recording(self) -> None:
+        try:
+            audio = self.recorder.stop()
+        except AudioCaptureError as exc:
+            print(f"\r  Microphone error: {exc}", file=sys.stderr)
             return
-        self.recording = False
-        if self.stream:
-            self.stream.stop()
-            self.stream.close()
-            self.stream = None
-        self._transcribe.set()
 
-    def _on_press(self, key):
+        if audio.size > 0:
+            self._audio_queue.put(audio)
+
+    def _on_press(self, key) -> None:  # noqa: ANN001
         if key == keyboard.Key.ctrl_r and self.active:
             self._start_recording()
 
-    def _on_release(self, key):
+    def _on_release(self, key) -> None:  # noqa: ANN001
         if key == keyboard.Key.ctrl_r:
-            self._stop_recording()
+            self._finalize_recording()
 
-    def start(self):
+    def start(self) -> None:
         """Start daemon threads (non-blocking). Returns immediately."""
         self._listener = keyboard.Listener(
             on_press=self._on_press,
@@ -88,13 +99,13 @@ class Daemon:
         )
         self._listener.start()
 
-        t = threading.Thread(target=self._transcription_loop, daemon=True)
-        t.start()
+        self._worker = threading.Thread(target=self._transcription_loop, daemon=True)
+        self._worker.start()
 
-    def run(self):
+    def run(self) -> None:
         """Start daemon and block (for headless mode)."""
         print("dictate daemon running", file=sys.stderr)
-        print("  Hold Right Ctrl to dictate, release to transcribe", file=sys.stderr)
+        print(f"  Hold Right Ctrl to dictate, release to transcribe ({self.output.name})", file=sys.stderr)
         print("  Ctrl+C to quit\n", file=sys.stderr)
 
         self.start()
@@ -106,38 +117,44 @@ class Daemon:
         finally:
             self.shutdown()
 
-    def _transcription_loop(self):
+    def _transcription_loop(self) -> None:
         while not self._stop.is_set():
-            self._transcribe.wait()
-            self._transcribe.clear()
-
-            if self._stop.is_set():
+            audio = self._audio_queue.get()
+            if audio is None:
                 break
 
-            with self._lock:
-                if not self.chunks:
-                    continue
-                audio = np.concatenate(self.chunks).flatten()
-                self.chunks = []
-
-            duration = len(audio) / SAMPLE_RATE
-            if duration < 0.3:
-                print("\r  Too short, skipped", file=sys.stderr)
-                continue
-
+            duration = self.engine.duration_s(audio)
             print(
                 f"\r  Transcribing {duration:.1f}s...   ",
                 end="",
                 file=sys.stderr,
                 flush=True,
             )
-            text = self.stt.transcribe(audio)
+            result = self.engine.transcribe(audio, language=self.language)
+            self._handle_result(result)
 
-            if text.strip():
-                subprocess.run(
-                    ["xdotool", "type", "--clearmodifiers", "--delay", "0", text.strip()],
-                    check=True,
-                )
-                print(f"\r  Typed: {text.strip()}", file=sys.stderr)
-            else:
-                print("\r  No speech detected", file=sys.stderr)
+    def _handle_result(self, result: TranscriptionResult) -> None:
+        if result.status == "empty":
+            print("\r  No audio captured", file=sys.stderr)
+            return
+
+        if result.status == "too_short":
+            print("\r  Too short, skipped", file=sys.stderr)
+            return
+
+        if result.status == "no_speech":
+            print("\r  No speech detected", file=sys.stderr)
+            return
+
+        if result.status == "error":
+            message = result.error or "unknown transcription error"
+            print(f"\r  Transcription failed: {message}", file=sys.stderr)
+            return
+
+        try:
+            self.output.send(result.text)
+        except Exception as exc:  # noqa: BLE001
+            print(f"\r  Output backend failed ({self.output.name}): {exc}", file=sys.stderr)
+            return
+
+        print(f"\r  Typed: {result.text}", file=sys.stderr)

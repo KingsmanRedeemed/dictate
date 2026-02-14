@@ -6,60 +6,47 @@ Usage:
     dictate --no-tray         Push-to-talk headless (no tray icon)
     dictate --once            One-shot: record until Enter, print to stdout
     dictate --once --copy     One-shot: record until Enter, copy to clipboard
+    dictate --type-backend wtype  Force typing backend for daemon mode
     dictate --model small     Use a different whisper model
 """
 
 import argparse
-import subprocess
 import sys
 import threading
 
-import numpy as np
-import sounddevice as sd
-
+from dictate.audio import AudioCaptureError, SoundDeviceRecorder
+from dictate.engine import DictationEngine
+from dictate.outputs import (
+    BackendUnavailableError,
+    ClipboardOutput,
+    OutputError,
+    StdoutOutput,
+    resolve_typing_backend,
+)
+from dictate.preflight import run_preflight
 from dictate.stt import SpeechToText
 
 SAMPLE_RATE = 16000
 
 
-def record_until_enter() -> np.ndarray:
+def record_until_enter(recorder: SoundDeviceRecorder):
     """Record from default mic until Enter is pressed."""
-    chunks: list[np.ndarray] = []
+    stop = threading.Event()
 
-    def callback(indata, frames, time, status):
-        if status:
-            print(f"  audio: {status}", file=sys.stderr)
-        chunks.append(indata.copy())
+    def wait_for_enter():
+        try:
+            input()
+        except EOFError:
+            pass
+        stop.set()
 
-    stream = sd.InputStream(
-        samplerate=SAMPLE_RATE,
-        channels=1,
-        dtype="float32",
-        callback=callback,
-    )
+    threading.Thread(target=wait_for_enter, daemon=True).start()
 
     print("Recording... (press Enter to stop)", file=sys.stderr)
-    stream.start()
-    input()
-    stream.stop()
-    stream.close()
-
-    if not chunks:
-        return np.array([], dtype=np.float32)
-
-    audio = np.concatenate(chunks).flatten()
+    audio = recorder.record_until(stop.is_set)
     duration = len(audio) / SAMPLE_RATE
     print(f"  {duration:.1f}s captured", file=sys.stderr)
     return audio
-
-
-def output_text(text: str, mode: str) -> None:
-    """Send transcribed text to the chosen output."""
-    if mode == "copy":
-        subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode(), check=True)
-        print("Copied to clipboard", file=sys.stderr)
-    else:
-        print(text)
 
 
 def main():
@@ -73,6 +60,12 @@ def main():
         "--no-tray", action="store_true",
         help="Headless daemon mode (no system tray icon)",
     )
+    parser.add_argument(
+        "--type-backend",
+        choices=["auto", "xdotool", "wtype", "ydotool"],
+        default="auto",
+        help="Typing backend for daemon mode (default: auto)",
+    )
     parser.add_argument("--model", default="base", help="Whisper model size (default: base)")
     parser.add_argument("--device", default="auto", help="Compute device: cpu, cuda, auto")
     parser.add_argument(
@@ -81,44 +74,94 @@ def main():
     )
     args = parser.parse_args()
 
+    report = run_preflight(
+        require_typing=not args.once,
+        require_clipboard=args.once and args.copy,
+        typing_backend=args.type_backend,
+    )
+    for note in report.notes:
+        print(f"Preflight: {note}", file=sys.stderr)
+    for warning in report.warnings:
+        print(f"Preflight warning: {warning}", file=sys.stderr)
+    if report.errors:
+        for error in report.errors:
+            print(f"Preflight error: {error}", file=sys.stderr)
+        sys.exit(2)
+
     stt = SpeechToText(model_size=args.model, device=args.device)
 
     print(f"Loading model ({args.model})...", file=sys.stderr)
-    _ = stt.model
+    try:
+        _ = stt.model
+    except Exception as exc:  # noqa: BLE001
+        print(f"Failed to load model '{args.model}': {exc}", file=sys.stderr)
+        sys.exit(2)
     print("Ready.\n", file=sys.stderr)
 
     if args.once:
         _run_once(stt, args)
     elif args.no_tray:
-        _run_headless(stt)
+        _run_headless(stt, args)
     else:
-        _run_tray(stt)
+        _run_tray(stt, args)
 
 
 def _run_once(stt: SpeechToText, args):
-    audio = record_until_enter()
-    if len(audio) == 0:
+    recorder = SoundDeviceRecorder(sample_rate=SAMPLE_RATE)
+    engine = DictationEngine(stt=stt, sample_rate=SAMPLE_RATE)
+
+    try:
+        audio = record_until_enter(recorder)
+    except AudioCaptureError as exc:
+        print(f"Microphone error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    result = engine.transcribe(audio, language=args.language)
+    if result.status == "empty":
         print("No audio captured", file=sys.stderr)
         sys.exit(1)
-
-    text = stt.transcribe(audio, language=args.language)
-    if not text.strip():
+    if result.status == "too_short":
+        print("Too short, skipped", file=sys.stderr)
+        sys.exit(1)
+    if result.status == "no_speech":
         print("No speech detected", file=sys.stderr)
         sys.exit(1)
+    if result.status == "error":
+        print(f"Transcription failed: {result.error}", file=sys.stderr)
+        sys.exit(1)
 
-    mode = "copy" if args.copy else "stdout"
-    output_text(text.strip(), mode)
+    output = ClipboardOutput() if args.copy else StdoutOutput()
+    try:
+        output.send(result.text)
+    except OutputError as exc:
+        print(f"Output error ({output.name}): {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.copy:
+        print("Copied to clipboard", file=sys.stderr)
 
 
-def _run_headless(stt: SpeechToText):
+def _run_headless(stt: SpeechToText, args):
     from dictate.daemon import Daemon
-    Daemon(stt).run()
+
+    try:
+        output = resolve_typing_backend(args.type_backend)
+    except BackendUnavailableError as exc:
+        print(f"Typing backend error: {exc}", file=sys.stderr)
+        sys.exit(2)
+    Daemon(stt, output=output, language=args.language).run()
 
 
-def _run_tray(stt: SpeechToText):
+def _run_tray(stt: SpeechToText, args):
     from dictate.daemon import Daemon
     from dictate.tray import TrayIcon
-    TrayIcon(Daemon(stt)).run()
+
+    try:
+        output = resolve_typing_backend(args.type_backend)
+    except BackendUnavailableError as exc:
+        print(f"Typing backend error: {exc}", file=sys.stderr)
+        sys.exit(2)
+    TrayIcon(Daemon(stt, output=output, language=args.language)).run()
 
 
 if __name__ == "__main__":
