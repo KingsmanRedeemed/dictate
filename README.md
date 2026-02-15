@@ -98,6 +98,17 @@ dictate --hotwords "Kubernetes,OpenBao"
 
 CLI `--hotwords` and saved hotwords are merged at startup.
 
+## How It Works
+
+**Hold Right Ctrl** to record, **release** to transcribe and type into the focused window.
+
+In tray mode, a microphone icon appears in the system tray with a right-click menu:
+
+- **Dictation active** — checkbox to pause/resume listening for the hotkey. The icon switches to a muted microphone when paused.
+- **Quit** — stops the daemon.
+
+You can also quit from the terminal with `Ctrl+C`.
+
 ## Notes And Troubleshooting
 
 - First run will likely download Whisper model files (network required once).
