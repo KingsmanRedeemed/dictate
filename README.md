@@ -75,6 +75,29 @@ dictate --type-backend wtype
 dictate --type-backend ydotool
 ```
 
+## Hotwords
+
+Hotwords improve recognition of custom vocabulary (project names, technical terms, etc.) that Whisper might otherwise mishear. They're passed to faster-whisper to bias the decoder.
+
+Manage saved hotwords:
+
+```bash
+dictate --add-hotword Kubernetes
+dictate --add-hotword OpenBao,Vikunja
+dictate --remove-hotword Vikunja
+dictate --list-hotwords
+```
+
+Hotwords are saved to `~/.config/dictate/config.yaml`. You need to restart dictate after adding or removing hotwords.
+
+You can also pass one-off hotwords without saving them:
+
+```bash
+dictate --hotwords "Kubernetes,OpenBao"
+```
+
+CLI `--hotwords` and saved hotwords are merged at startup.
+
 ## Notes And Troubleshooting
 
 - First run will likely download Whisper model files (network required once).
@@ -97,4 +120,3 @@ dictate --type-backend ydotool
 ## License
 
 MIT (see `LICENSE`).
-

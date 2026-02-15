@@ -8,6 +8,8 @@ Usage:
     dictate --once --copy     One-shot: record until Enter, copy to clipboard
     dictate --type-backend wtype  Force typing backend for daemon mode
     dictate --model small     Use a different whisper model
+    dictate --add-hotword X   Save a hotword for improved recognition
+    dictate --list-hotwords   List saved hotwords
 """
 
 import argparse
@@ -15,7 +17,7 @@ import sys
 import threading
 
 from dictate.audio import AudioCaptureError, SoundDeviceRecorder
-from dictate.config import load_config
+from dictate.config import add_hotwords, load_config, remove_hotwords
 from dictate.engine import DictationEngine
 from dictate.outputs import (
     BackendUnavailableError,
@@ -77,7 +79,49 @@ def main():
         "--hotwords", default=None,
         help="Comma-separated words to boost recognition (e.g. 'OpenBao,Vikunja')",
     )
+    parser.add_argument(
+        "--add-hotword", metavar="WORD",
+        help="Add word(s) to saved hotwords (comma-separated). Restart dictate to apply.",
+    )
+    parser.add_argument(
+        "--remove-hotword", metavar="WORD",
+        help="Remove word(s) from saved hotwords (comma-separated).",
+    )
+    parser.add_argument(
+        "--list-hotwords", action="store_true",
+        help="List saved hotwords and exit.",
+    )
     args = parser.parse_args()
+
+    # --- Hotword management (no model load, no preflight) ---
+    if args.add_hotword:
+        words = [w.strip() for w in args.add_hotword.split(",") if w.strip()]
+        added = add_hotwords(words)
+        if added:
+            print(f"Added: {', '.join(added)}", file=sys.stderr)
+            print("Restart dictate to apply.", file=sys.stderr)
+        else:
+            print("Already present, nothing to add.", file=sys.stderr)
+        sys.exit(0)
+
+    if args.remove_hotword:
+        words = [w.strip() for w in args.remove_hotword.split(",") if w.strip()]
+        removed = remove_hotwords(words)
+        if removed:
+            print(f"Removed: {', '.join(removed)}", file=sys.stderr)
+            print("Restart dictate to apply.", file=sys.stderr)
+        else:
+            print("Not found, nothing to remove.", file=sys.stderr)
+        sys.exit(0)
+
+    if args.list_hotwords:
+        config = load_config()
+        if config.hotwords:
+            for word in config.hotwords:
+                print(word)
+        else:
+            print("No hotwords configured.", file=sys.stderr)
+        sys.exit(0)
 
     report = run_preflight(
         require_typing=not args.once,
