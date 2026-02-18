@@ -6,7 +6,9 @@ This is intended to be an always-available desktop utility (tray icon) and a CLI
 
 ## Features
 
-- Local speech-to-text via `faster-whisper` (model loads once; stays in memory for low latency).
+- Local speech-to-text with selectable backends:
+  - `faster-whisper` (default)
+  - `nemo-canary` (`nvidia/canary-1b`, `nvidia/canary-1b-flash`, `nvidia/canary-1b-v2`)
 - Push-to-talk daemon: `Right Ctrl` hold/release to record/transcribe/type.
 - System tray toggle (pause/resume dictation).
 - One-shot mode for terminal workflows (print to stdout or copy to clipboard).
@@ -31,6 +33,12 @@ The repo ships with an installer script that installs into a standalone venv at 
 
 ```bash
 ./install.sh
+```
+
+Optional: install NVIDIA NeMo backend dependencies in your active environment:
+
+```bash
+uv pip install -e ".[nemo]"
 ```
 
 ## Usage
@@ -62,9 +70,30 @@ dictate --once --copy
 Select model/device/language:
 
 ```bash
-dictate --model small
+dictate --stt-backend faster-whisper --model large-v3-turbo
+dictate --stt-backend nemo-canary --model nvidia/canary-1b-flash
 dictate --device cpu
 dictate --language en
+```
+
+## STT Backends (RTX 4090)
+
+Recommended defaults for low-latency dictation:
+
+- Best balance of accuracy + speed: `nemo-canary` with `nvidia/canary-1b-flash`
+- Best compatibility + hotword biasing: `faster-whisper` with `large-v3-turbo`
+
+Examples:
+
+```bash
+# Fast, high-accuracy Canary path (recommended on RTX 4090)
+dictate --stt-backend nemo-canary --model nvidia/canary-1b-flash --language en
+
+# Canary v2 (often better quality than Canary 1B, but usually heavier)
+dictate --stt-backend nemo-canary --model nvidia/canary-1b-v2 --language en
+
+# Faster-whisper baseline with Whisper Turbo
+dictate --stt-backend faster-whisper --model large-v3-turbo --language en
 ```
 
 Force typing backend (daemon modes):
@@ -77,7 +106,9 @@ dictate --type-backend ydotool
 
 ## Hotwords
 
-Hotwords improve recognition of custom vocabulary (project names, technical terms, etc.) that Whisper might otherwise mishear. They're passed to faster-whisper to bias the decoder.
+Hotwords improve recognition of custom vocabulary (project names, technical terms, etc.) that Whisper might otherwise mishear.
+
+Hotwords are currently applied only on the `faster-whisper` backend.
 
 Manage saved hotwords:
 
@@ -111,13 +142,14 @@ You can also quit from the terminal with `Ctrl+C`.
 
 ## Notes And Troubleshooting
 
-- First run will likely download Whisper model files (network required once).
+- First run will likely download model files (Whisper or NeMo, depending on backend). Network is required once per model.
 - On Wayland:
   - `xdotool` generally will not work for native Wayland apps.
   - Prefer `wtype` (simple) or `ydotool` (may require extra setup/permissions).
   - Global hotkeys can be restricted on some Wayland compositors; if the hotkey does not fire, use `--once` or run an X11 session.
 - If preflight reports missing tools, install them via your distro package manager (e.g. `xdotool`, `xclip`, `wtype`).
 - Dictation uses the system default microphone input device. If your default input is misconfigured, fix it in your OS audio settings.
+- If NeMo backend fails to load, install optional deps with `uv pip install -e ".[nemo]"`.
 
 ## Development
 

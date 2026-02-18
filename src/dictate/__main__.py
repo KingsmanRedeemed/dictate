@@ -6,8 +6,9 @@ Usage:
     dictate --no-tray         Push-to-talk headless (no tray icon)
     dictate --once            One-shot: record until Enter, print to stdout
     dictate --once --copy     One-shot: record until Enter, copy to clipboard
+    dictate --stt-backend nemo-canary --model nvidia/canary-1b-flash
     dictate --type-backend wtype  Force typing backend for daemon mode
-    dictate --model small     Use a different whisper model
+    dictate --model large-v3-turbo  Use a different STT model
     dictate --add-hotword X   Save a hotword for improved recognition
     dictate --list-hotwords   List saved hotwords
 """
@@ -27,7 +28,12 @@ from dictate.outputs import (
     resolve_typing_backend,
 )
 from dictate.preflight import run_preflight
-from dictate.stt import SpeechToText
+from dictate.stt import (
+    DEFAULT_MODELS,
+    NEMO_CANARY_MODELS,
+    SpeechToText,
+    create_speech_to_text,
+)
 
 SAMPLE_RATE = 16000
 
@@ -69,7 +75,21 @@ def main():
         default="auto",
         help="Typing backend for daemon mode (default: auto)",
     )
-    parser.add_argument("--model", default="base", help="Whisper model size (default: base)")
+    parser.add_argument(
+        "--stt-backend",
+        choices=["faster-whisper", "nemo-canary"],
+        default="faster-whisper",
+        help="Speech-to-text backend (default: faster-whisper)",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help=(
+            "Model name. "
+            "faster-whisper examples: turbo, large-v3-turbo, large-v3. "
+            f"nemo-canary examples: {', '.join(NEMO_CANARY_MODELS)}."
+        ),
+    )
     parser.add_argument("--device", default="auto", help="Compute device: cpu, cuda, auto")
     parser.add_argument(
         "--language", default=None,
@@ -147,13 +167,24 @@ def main():
     if hotwords_str:
         print(f"Hotwords: {hotwords_str}", file=sys.stderr)
 
-    stt = SpeechToText(model_size=args.model, device=args.device)
+    model_name = args.model or DEFAULT_MODELS[args.stt_backend]
+    stt = create_speech_to_text(
+        backend=args.stt_backend,
+        model=model_name,
+        device=args.device,
+    )
 
-    print(f"Loading model ({args.model})...", file=sys.stderr)
+    print(
+        f"Loading STT backend '{args.stt_backend}' model '{model_name}'...",
+        file=sys.stderr,
+    )
     try:
         _ = stt.model
     except Exception as exc:  # noqa: BLE001
-        print(f"Failed to load model '{args.model}': {exc}", file=sys.stderr)
+        print(
+            f"Failed to load backend '{args.stt_backend}' model '{model_name}': {exc}",
+            file=sys.stderr,
+        )
         sys.exit(2)
     print("Ready.\n", file=sys.stderr)
 

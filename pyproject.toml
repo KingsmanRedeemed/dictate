@@ -14,6 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 gpu = ["torch>=2.4.0"]
+nemo = ["nemo_toolkit[asr]>=2.4.0"]
 
 [project.scripts]
 dictate = "dictate.__main__:main"
