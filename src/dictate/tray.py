@@ -37,6 +37,10 @@ class TrayIcon:
         self.toggle_item.connect("toggled", self._on_toggle)
         menu.append(self.toggle_item)
 
+        hotwords_item = Gtk.MenuItem(label="Manage Hotwords...")
+        hotwords_item.connect("activate", self._on_manage_hotwords)
+        menu.append(hotwords_item)
+
         menu.append(Gtk.SeparatorMenuItem())
 
         quit_item = Gtk.MenuItem(label="Quit")
@@ -53,6 +57,17 @@ class TrayIcon:
         else:
             self.daemon.pause()
             self.indicator.set_icon_full(ICON_PAUSED, "Dictate paused")
+
+    def _on_manage_hotwords(self, _item):
+        from dictate.config import load_config
+        from dictate.hotwords_dialog import HotwordsDialog
+
+        dialog = HotwordsDialog()
+        dialog.run()
+        dialog.destroy()
+
+        # Live-reload: update engine hotwords from saved config
+        self.daemon.engine.hotwords = load_config().hotwords_str
 
     def _on_quit(self, _item):
         self.daemon.shutdown()
