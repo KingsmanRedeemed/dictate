@@ -13,6 +13,7 @@ This is intended to be an always-available desktop utility (tray icon) and a CLI
 - Push-to-talk daemon: `Right Ctrl` hold/release to record/transcribe/type.
 - System tray toggle (pause/resume dictation).
 - Tray menu STT switcher (change backend/model without restart).
+- Tray runtime profile switcher (device/compute tuning without restart).
 - One-shot mode for terminal workflows (print to stdout or copy to clipboard).
 - Typing backend auto-selection (`xdotool` on X11, `wtype`/`ydotool` on Wayland if installed).
 
@@ -89,6 +90,7 @@ Select model/device/language:
 dictate --stt-backend faster-whisper --model large-v3-turbo
 dictate --stt-backend nemo-canary --model nvidia/canary-1b-flash
 dictate --device cpu
+dictate --compute-type float16
 dictate --language en
 ```
 
@@ -153,6 +155,7 @@ In tray mode, a microphone icon appears in the system tray with a right-click me
 
 - **Dictation active** — checkbox to pause/resume listening for the hotkey. The icon switches to a muted microphone when paused.
 - **Speech Model** — switch backend/model live. Successful changes are saved for future startups.
+- **Runtime Profile** — switch device/compute profile live (for example `cuda/int8`, `cuda/float16`, `cpu/int8`).
 - If switching fails, Dictate keeps the previous model active and shows an error dialog.
 - **Quit** — stops the daemon.
 
@@ -161,7 +164,7 @@ You can also quit from the terminal with `Ctrl+C`.
 ## Notes And Troubleshooting
 
 - First run will likely download model files (Whisper or NeMo, depending on backend). Network is required once per model.
-- Tray model selections are persisted in `~/.config/dictate/config.yaml` and used on startup unless CLI model flags are provided.
+- Tray model/profile selections are persisted in `~/.config/dictate/config.yaml` and used on startup unless CLI flags override them.
 - Preflight now checks STT backend readiness (dependency imports + CUDA visibility) before model load.
 - Startup stderr is mirrored to logs:
   - latest run: `~/.local/share/dictate/logs/latest.log`

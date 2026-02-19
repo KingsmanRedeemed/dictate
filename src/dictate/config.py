@@ -18,6 +18,8 @@ class Config:
     hotwords: list[str] = field(default_factory=list)
     stt_backend: str | None = None
     stt_model: str | None = None
+    stt_device: str | None = None
+    stt_compute_type: str | None = None
 
     @property
     def hotwords_str(self) -> str | None:
@@ -42,12 +44,24 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
 
     stt_backend = data.get("stt_backend")
     stt_model = data.get("stt_model")
+    stt_device = data.get("stt_device")
+    stt_compute_type = data.get("stt_compute_type")
     if not isinstance(stt_backend, str):
         stt_backend = None
     if not isinstance(stt_model, str):
         stt_model = None
+    if not isinstance(stt_device, str):
+        stt_device = None
+    if not isinstance(stt_compute_type, str):
+        stt_compute_type = None
 
-    return Config(hotwords=hotwords, stt_backend=stt_backend, stt_model=stt_model)
+    return Config(
+        hotwords=hotwords,
+        stt_backend=stt_backend,
+        stt_model=stt_model,
+        stt_device=stt_device,
+        stt_compute_type=stt_compute_type,
+    )
 
 
 def _load_raw(path: Path = CONFIG_PATH) -> dict:
@@ -99,4 +113,12 @@ def set_stt_selection(backend: str, model: str, path: Path = CONFIG_PATH) -> Non
     data = _load_raw(path)
     data["stt_backend"] = backend
     data["stt_model"] = model
+    _save_raw(data, path)
+
+
+def set_stt_runtime_profile(device: str, compute_type: str, path: Path = CONFIG_PATH) -> None:
+    """Persist selected STT runtime profile for tray startup defaults."""
+    data = _load_raw(path)
+    data["stt_device"] = device
+    data["stt_compute_type"] = compute_type
     _save_raw(data, path)

@@ -33,6 +33,7 @@ from dictate.outputs import (
 )
 from dictate.stt import (
     ComputeDevice,
+    ComputeType,
     NEMO_CANARY_MODELS,
     STT_BACKENDS,
     SpeechToText,
@@ -88,6 +89,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Compute device: cpu, cuda, auto",
     )
     parser.add_argument(
+        "--compute-type",
+        choices=["int8", "float16", "float32"],
+        default="int8",
+        help="faster-whisper compute type (ignored by nemo-canary)",
+    )
+    parser.add_argument(
         "--language",
         default=None,
         help="Language code (e.g. en). Auto-detect if omitted",
@@ -131,6 +138,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     config = load_config()
     stt_backend, model_name = _resolve_startup_stt(args=args, cli_args=cli_args, config=config)
+    stt_device, stt_compute_type = _resolve_startup_runtime(
+        args=args,
+        cli_args=cli_args,
+        config=config,
+    )
 
     _run_preflight_or_exit(
         require_typing=not args.once,
@@ -138,13 +150,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         typing_backend=args.type_backend,
         stt_backend=stt_backend,
         stt_model=model_name,
-        stt_device=args.device,
+        stt_device=stt_device,
     )
 
     stt = _load_stt_or_exit(
         stt_backend=stt_backend,
         model_name=model_name,
-        device=args.device,
+        device=stt_device,
+        compute_type=stt_compute_type,
     )
     language = _resolve_language(stt, args.language)
     hotwords = _resolve_hotwords(stt, config=config, cli_hotwords=args.hotwords)
@@ -198,6 +211,38 @@ def _resolve_startup_stt(
     return (args.stt_backend, resolve_model_name(args.stt_backend, args.model))
 
 
+def _resolve_startup_runtime(
+    *,
+    args,  # noqa: ANN001
+    cli_args: Sequence[str],
+    config: Config,
+) -> tuple[ComputeDevice, ComputeType]:
+    device_flag = _flag_in_args(cli_args, "--device")
+    compute_flag = _flag_in_args(cli_args, "--compute-type")
+
+    device: ComputeDevice = args.device
+    if not device_flag and config.stt_device in {"cpu", "cuda", "auto"}:
+        device = config.stt_device  # type: ignore[assignment]
+        print(f"Using saved STT device: {device}", file=sys.stderr)
+    elif not device_flag and config.stt_device:
+        print(
+            f"Ignoring invalid saved STT device '{config.stt_device}' in config.",
+            file=sys.stderr,
+        )
+
+    compute_type: ComputeType = args.compute_type
+    if not compute_flag and config.stt_compute_type in {"int8", "float16", "float32"}:
+        compute_type = config.stt_compute_type  # type: ignore[assignment]
+        print(f"Using saved STT compute type: {compute_type}", file=sys.stderr)
+    elif not compute_flag and config.stt_compute_type:
+        print(
+            f"Ignoring invalid saved STT compute type '{config.stt_compute_type}' in config.",
+            file=sys.stderr,
+        )
+
+    return (device, compute_type)
+
+
 def _flag_in_args(cli_args: Sequence[str], name: str) -> bool:
     if name in cli_args:
         return True
@@ -238,14 +283,19 @@ def _load_stt_or_exit(
     stt_backend: SttBackend,
     model_name: str,
     device: ComputeDevice,
+    compute_type: ComputeType,
 ) -> SpeechToText:
     stt = create_speech_to_text(
         backend=stt_backend,
         model=model_name,
         device=device,
+        compute_type=compute_type,
     )
     print(
-        f"Loading STT backend '{stt_backend}' model '{model_name}'...",
+        (
+            f"Loading STT backend '{stt_backend}' model '{model_name}' "
+            f"on '{device}' ({compute_type})..."
+        ),
         file=sys.stderr,
     )
     try:
@@ -284,7 +334,10 @@ def _resolve_hotwords(
         return None
     if not stt.capabilities.supports_hotwords:
         print(
-            f"Warning: backend '{stt.backend_name}' does not support hotwords; ignoring configured hotwords.",
+            (
+                f"Warning: backend '{stt.backend_name}' does not support hotwords; "
+                "ignoring configured hotwords."
+            ),
             file=sys.stderr,
         )
         return None
