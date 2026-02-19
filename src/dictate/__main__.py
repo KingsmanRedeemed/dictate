@@ -6,6 +6,7 @@ Usage:
     dictate --no-tray         Push-to-talk headless (no tray icon)
     dictate --once            One-shot: record until Enter, print to stdout
     dictate --once --copy     One-shot: record until Enter, copy to clipboard
+    dictate benchmark ...     Benchmark STT backends on local WAV files
     dictate --stt-backend nemo-canary --model nvidia/canary-1b-flash
     dictate --type-backend wtype  Force typing backend for daemon mode
     dictate --model large-v3-turbo  Use a different STT model
@@ -19,6 +20,7 @@ import threading
 from typing import Sequence
 
 from dictate.audio import AudioCaptureError, SoundDeviceRecorder
+from dictate.benchmark import run_benchmark
 from dictate.config import add_hotwords, load_config, remove_hotwords
 from dictate.engine import DictationEngine
 from dictate.outputs import (
@@ -43,7 +45,10 @@ SAMPLE_RATE = 16000
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Local voice-to-text for the terminal")
+    parser = argparse.ArgumentParser(
+        description="Local voice-to-text for the terminal",
+        epilog="For STT benchmarking use: dictate benchmark --help",
+    )
     parser.add_argument(
         "--once",
         action="store_true",
@@ -111,8 +116,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    cli_args = list(argv) if argv is not None else sys.argv[1:]
+    if cli_args and cli_args[0] == "benchmark":
+        return run_benchmark(cli_args[1:])
+
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(cli_args)
 
     handled = _handle_hotword_commands(args)
     if handled is not None:

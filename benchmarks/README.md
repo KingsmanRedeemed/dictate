@@ -20,7 +20,7 @@ See `benchmarks/example_manifest.csv`.
 ## Run
 
 ```bash
-uv run python scripts/benchmark_stt.py \
+dictate benchmark \
   --manifest benchmarks/example_manifest.csv \
   --audio-root benchmarks \
   --stt-backend nemo-canary \

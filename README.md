@@ -158,13 +158,19 @@ You can also quit from the terminal with `Ctrl+C`.
 Use the local benchmark harness to compare backends/models on your own accent and vocabulary:
 
 ```bash
-uv run python scripts/benchmark_stt.py \
+dictate benchmark \
   --manifest benchmarks/example_manifest.csv \
   --audio-root benchmarks \
   --stt-backend nemo-canary \
   --model nvidia/canary-1b-flash \
   --device cuda \
   --language en
+```
+
+Legacy wrapper still works:
+
+```bash
+uv run python scripts/benchmark_stt.py --help
 ```
 
 Create your own manifest with Australian-accent phrases and proper nouns. Format docs: `benchmarks/README.md`.
