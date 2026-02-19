@@ -116,6 +116,18 @@ dictate --stt-backend nemo-canary --model nvidia/canary-1b-v2 --language en
 dictate --stt-backend faster-whisper --model large-v3-turbo --language en
 ```
 
+Faster-whisper model choices used by Dictate (`Speech Model` menu):
+
+- `base` (not "bass"): smallest option, fastest startup, lowest resource use, lower accuracy.
+- `turbo`: optimized large-family variant (maps to `large-v3-turbo`), best speed/accuracy balance for push-to-talk.
+- `large-v3`: full large model, highest accuracy in difficult audio, highest latency/memory usage.
+
+Quick rule of thumb:
+
+- If latency is critical: start with `turbo`.
+- If quality is critical and you can accept extra delay: try `large-v3`.
+- If you need minimal cold-start and resource use: use `base`.
+
 Force typing backend (daemon modes):
 
 ```bash
