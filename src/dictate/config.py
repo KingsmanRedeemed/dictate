@@ -16,6 +16,8 @@ CONFIG_PATH = Path.home() / ".config" / "dictate" / "config.yaml"
 @dataclass(slots=True)
 class Config:
     hotwords: list[str] = field(default_factory=list)
+    stt_backend: str | None = None
+    stt_model: str | None = None
 
     @property
     def hotwords_str(self) -> str | None:
@@ -38,7 +40,14 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
     if isinstance(hotwords, str):
         hotwords = [hotwords]
 
-    return Config(hotwords=hotwords)
+    stt_backend = data.get("stt_backend")
+    stt_model = data.get("stt_model")
+    if not isinstance(stt_backend, str):
+        stt_backend = None
+    if not isinstance(stt_model, str):
+        stt_model = None
+
+    return Config(hotwords=hotwords, stt_backend=stt_backend, stt_model=stt_model)
 
 
 def _load_raw(path: Path = CONFIG_PATH) -> dict:
@@ -83,3 +92,11 @@ def remove_hotwords(words: list[str], path: Path = CONFIG_PATH) -> list[str]:
         data["hotwords"] = [w for w in existing if w not in words]
         _save_raw(data, path)
     return removed
+
+
+def set_stt_selection(backend: str, model: str, path: Path = CONFIG_PATH) -> None:
+    """Persist selected STT backend/model for tray startup defaults."""
+    data = _load_raw(path)
+    data["stt_backend"] = backend
+    data["stt_model"] = model
+    _save_raw(data, path)

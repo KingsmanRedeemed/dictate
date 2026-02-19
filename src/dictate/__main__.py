@@ -21,7 +21,7 @@ import threading
 from typing import Sequence
 
 from dictate.benchmark import run_benchmark
-from dictate.config import add_hotwords, load_config, remove_hotwords
+from dictate.config import Config, add_hotwords, load_config, remove_hotwords
 from dictate.doctor import run_doctor
 from dictate.engine import DictationEngine
 from dictate.outputs import (
@@ -129,8 +129,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if handled is not None:
         return handled
 
-    stt_backend = args.stt_backend
-    model_name = resolve_model_name(stt_backend, args.model)
+    config = load_config()
+    stt_backend, model_name = _resolve_startup_stt(args=args, cli_args=cli_args, config=config)
 
     _run_preflight_or_exit(
         require_typing=not args.once,
@@ -147,7 +147,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         device=args.device,
     )
     language = _resolve_language(stt, args.language)
-    hotwords = _resolve_hotwords(stt, cli_hotwords=args.hotwords)
+    hotwords = _resolve_hotwords(stt, config=config, cli_hotwords=args.hotwords)
 
     if args.once:
         _run_once(stt, copy_to_clipboard=args.copy, language=language, hotwords=hotwords)
@@ -173,6 +173,35 @@ def main_with_logging() -> int:
     from dictate.runtime_logging import run_with_startup_logging
 
     return run_with_startup_logging(main)
+
+
+def _resolve_startup_stt(
+    *,
+    args,  # noqa: ANN001
+    cli_args: Sequence[str],
+    config: Config,
+) -> tuple[SttBackend, str]:
+    backend_flag = _flag_in_args(cli_args, "--stt-backend")
+    model_flag = _flag_in_args(cli_args, "--model")
+    if not backend_flag and not model_flag and config.stt_backend in STT_BACKENDS:
+        model_name = resolve_model_name(config.stt_backend, config.stt_model)
+        print(
+            f"Using saved STT selection: backend='{config.stt_backend}' model='{model_name}'",
+            file=sys.stderr,
+        )
+        return (config.stt_backend, model_name)
+    if not backend_flag and not model_flag and config.stt_backend:
+        print(
+            f"Ignoring invalid saved STT backend '{config.stt_backend}' in config.",
+            file=sys.stderr,
+        )
+    return (args.stt_backend, resolve_model_name(args.stt_backend, args.model))
+
+
+def _flag_in_args(cli_args: Sequence[str], name: str) -> bool:
+    if name in cli_args:
+        return True
+    return any(arg.startswith(f"{name}=") for arg in cli_args)
 
 
 def _run_preflight_or_exit(
@@ -241,8 +270,12 @@ def _resolve_language(stt: SpeechToText, language: str | None) -> str | None:
     return language
 
 
-def _resolve_hotwords(stt: SpeechToText, *, cli_hotwords: str | None) -> str | None:
-    config = load_config()
+def _resolve_hotwords(
+    stt: SpeechToText,
+    *,
+    config: Config,
+    cli_hotwords: str | None,
+) -> str | None:
     words = list(config.hotwords)
     if cli_hotwords:
         words.extend(_parse_csv_words(cli_hotwords))

@@ -31,6 +31,7 @@ class Daemon:
         self.output = output
         self.engine = DictationEngine(stt=stt, sample_rate=SAMPLE_RATE, hotwords=hotwords)
         self.recorder = SoundDeviceRecorder(sample_rate=SAMPLE_RATE)
+        self._engine_lock = threading.Lock()
 
         self._stop = threading.Event()
         self._listener: keyboard.Listener | None = None
@@ -46,6 +47,30 @@ class Daemon:
     def resume(self) -> None:
         """Resume listening for hotkey."""
         self.active = True
+
+    def set_hotwords(self, hotwords: str | None) -> None:
+        """Update hotwords without restarting daemon."""
+        with self._engine_lock:
+            self.engine.set_hotwords(hotwords)
+
+    def switch_speech_to_text(self, stt: SpeechToText, *, hotwords: str | None = None) -> None:
+        """Swap STT backend/model at runtime."""
+        with self._engine_lock:
+            self.engine.stt = stt
+            self.engine.set_hotwords(hotwords)
+
+    def current_backend_model(self) -> tuple[str, str]:
+        """Return active backend/model selection."""
+        with self._engine_lock:
+            return (self.engine.stt.backend_name, self.engine.stt.model_name)
+
+    def runtime_stt_options(self) -> tuple[str, str]:
+        """Return current STT device/compute options for new model instantiation."""
+        with self._engine_lock:
+            stt = self.engine.stt
+            device = getattr(stt, "device", "auto")
+            compute_type = getattr(stt, "compute_type", "int8")
+            return (device, compute_type)
 
     def shutdown(self) -> None:
         """Clean shutdown."""
@@ -124,14 +149,15 @@ class Daemon:
             if audio is None:
                 break
 
-            duration = self.engine.duration_s(audio)
+            duration = len(audio) / SAMPLE_RATE
             print(
                 f"\r  Transcribing {duration:.1f}s...   ",
                 end="",
                 file=sys.stderr,
                 flush=True,
             )
-            result = self.engine.transcribe(audio, language=self.language)
+            with self._engine_lock:
+                result = self.engine.transcribe(audio, language=self.language)
             self._handle_result(result)
 
     def _handle_result(self, result: TranscriptionResult) -> None:
