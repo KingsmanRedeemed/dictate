@@ -19,7 +19,6 @@ import sys
 import threading
 from typing import Sequence
 
-from dictate.audio import AudioCaptureError, SoundDeviceRecorder
 from dictate.benchmark import run_benchmark
 from dictate.config import add_hotwords, load_config, remove_hotwords
 from dictate.engine import DictationEngine
@@ -30,7 +29,6 @@ from dictate.outputs import (
     StdoutOutput,
     resolve_typing_backend,
 )
-from dictate.preflight import run_preflight
 from dictate.stt import (
     ComputeDevice,
     NEMO_CANARY_MODELS,
@@ -176,6 +174,8 @@ def _run_preflight_or_exit(
     stt_model: str,
     stt_device: ComputeDevice,
 ) -> None:
+    from dictate.preflight import run_preflight
+
     report = run_preflight(
         require_typing=require_typing,
         require_clipboard=require_clipboard,
@@ -283,7 +283,7 @@ def _handle_hotword_commands(args) -> int | None:  # noqa: ANN001
     return None
 
 
-def record_until_enter(recorder: SoundDeviceRecorder):
+def record_until_enter(recorder):
     """Record from default mic until Enter is pressed."""
     stop = threading.Event()
 
@@ -310,6 +310,8 @@ def _run_once(
     language: str | None,
     hotwords: str | None,
 ) -> None:
+    from dictate.audio import AudioCaptureError, SoundDeviceRecorder
+
     recorder = SoundDeviceRecorder(sample_rate=SAMPLE_RATE)
     engine = DictationEngine(stt=stt, sample_rate=SAMPLE_RATE, hotwords=hotwords)
 
