@@ -36,6 +36,12 @@ The repo ships with an installer script that installs into a standalone venv at 
 ./install.sh
 ```
 
+Installer verification can be skipped if needed:
+
+```bash
+./install.sh --no-verify
+```
+
 Optional: install NVIDIA NeMo backend dependencies in your active environment:
 
 ```bash
@@ -68,9 +74,17 @@ One-shot (record until Enter, copy to clipboard):
 dictate --once --copy
 ```
 
+Run diagnostics:
+
+```bash
+dictate doctor --quick
+dictate doctor --check-model-load
+```
+
 Select model/device/language:
 
 ```bash
+# default faster-whisper model is "base" (quickest cold-start, reliable offline if cached)
 dictate --stt-backend faster-whisper --model large-v3-turbo
 dictate --stt-backend nemo-canary --model nvidia/canary-1b-flash
 dictate --device cpu
@@ -145,6 +159,10 @@ You can also quit from the terminal with `Ctrl+C`.
 
 - First run will likely download model files (Whisper or NeMo, depending on backend). Network is required once per model.
 - Preflight now checks STT backend readiness (dependency imports + CUDA visibility) before model load.
+- Startup stderr is mirrored to logs:
+  - latest run: `~/.local/share/dictate/logs/latest.log`
+  - last non-zero exit: `~/.local/share/dictate/logs/last_failure.log`
+  - fallback when home path is not writable: `/tmp/dictate-logs/`
 - On Wayland:
   - `xdotool` generally will not work for native Wayland apps.
   - Prefer `wtype` (simple) or `ydotool` (may require extra setup/permissions).
@@ -152,6 +170,7 @@ You can also quit from the terminal with `Ctrl+C`.
 - If preflight reports missing tools, install them via your distro package manager (e.g. `xdotool`, `xclip`, `wtype`).
 - Dictation uses the system default microphone input device. If your default input is misconfigured, fix it in your OS audio settings.
 - If NeMo backend fails to load, install optional deps with `uv pip install -e ".[nemo]"`.
+- If the app does not launch from GUI, run `dictate doctor --quick` and inspect the reported active log directory (`~/.local/share/dictate/logs/` or `/tmp/dictate-logs/`).
 
 ## Benchmarking
 
@@ -185,7 +204,7 @@ uv run python -m unittest discover -s tests
 
 ## Development
 
-- Entry point: `dictate` is `dictate.__main__:main` (see `src/dictate/__main__.py`).
+- Entry point: `dictate` is `dictate.__main__:main_with_logging` (see `src/dictate/__main__.py`).
 - Core pipeline modules:
   - audio capture: `src/dictate/audio.py`
   - transcription engine: `src/dictate/engine.py`

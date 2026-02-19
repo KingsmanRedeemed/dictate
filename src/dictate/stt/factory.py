@@ -16,7 +16,7 @@ from dictate.stt.faster_whisper_backend import FasterWhisperSpeechToText
 from dictate.stt.nemo_canary_backend import NeMoCanarySpeechToText
 
 DEFAULT_MODELS: dict[SttBackend, str] = {
-    "faster-whisper": "turbo",
+    "faster-whisper": "base",
     "nemo-canary": "nvidia/canary-1b-flash",
 }
 FASTER_WHISPER_MODELS: tuple[str, ...] = (

@@ -19,7 +19,7 @@ class SttRegistryTests(unittest.TestCase):
         self.assertIn("nemo-canary", BACKEND_REGISTRY)
 
     def test_resolve_model_name_defaults(self) -> None:
-        self.assertEqual(resolve_model_name("faster-whisper", None), "turbo")
+        self.assertEqual(resolve_model_name("faster-whisper", None), "base")
         self.assertEqual(resolve_model_name("nemo-canary", None), "nvidia/canary-1b-flash")
 
     def test_create_backend_instances_without_loading_models(self) -> None:

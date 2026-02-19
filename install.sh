@@ -8,6 +8,17 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="$HOME/.local/share/dictate"
 BIN_DIR="$HOME/.local/bin"
 DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+VERIFY=1
+
+if [ "${1:-}" = "--no-verify" ]; then
+  VERIFY=0
+  shift
+fi
+
+if [ "$#" -ne 0 ]; then
+  echo "Usage: $0 [--no-verify]"
+  exit 1
+fi
 
 echo "Creating venv at $INSTALL_DIR ..."
 uv venv "$INSTALL_DIR/venv" --python python3 --system-site-packages --quiet
@@ -33,5 +44,35 @@ Keywords=voice;speech;transcription;dictation;asr;whisper;canary;
 EOF
 
 update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+
+if [ "$VERIFY" -eq 1 ]; then
+  VERIFY_LOG="/tmp/dictate-install-verify.log"
+  DICTATE_BIN="$INSTALL_DIR/venv/bin/dictate"
+
+  run_check() {
+    local label="$1"
+    shift
+    echo "Verifying: $label ..."
+    if command -v timeout >/dev/null 2>&1; then
+      if ! timeout 20s "$@" >"$VERIFY_LOG" 2>&1; then
+        echo "Verification failed: $label"
+        echo "See: $VERIFY_LOG"
+        tail -n 120 "$VERIFY_LOG" || true
+        exit 1
+      fi
+    else
+      if ! "$@" >"$VERIFY_LOG" 2>&1; then
+        echo "Verification failed: $label"
+        echo "See: $VERIFY_LOG"
+        tail -n 120 "$VERIFY_LOG" || true
+        exit 1
+      fi
+    fi
+  }
+
+  run_check "dictate --help" "$DICTATE_BIN" --help
+  run_check "dictate benchmark --help" "$DICTATE_BIN" benchmark --help
+  run_check "dictate doctor --quick" "$DICTATE_BIN" doctor --quick
+fi
 
 echo "Done. 'dictate' is now available on your PATH and in the app launcher."

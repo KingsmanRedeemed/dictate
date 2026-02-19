@@ -5,8 +5,6 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 
-import sounddevice as sd
-
 from dictate.outputs import (
     BackendUnavailableError,
     command_exists,
@@ -55,6 +53,8 @@ def _check_microphone(report: PreflightReport) -> None:
 
     def query_devices() -> None:
         try:
+            import sounddevice as sd
+
             result["devices"] = sd.query_devices()
             result["default"] = sd.default.device
         except Exception as exc:  # noqa: BLE001

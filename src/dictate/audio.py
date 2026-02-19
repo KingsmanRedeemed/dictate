@@ -5,9 +5,9 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
 import numpy as np
-import sounddevice as sd
 
 
 class AudioCaptureError(RuntimeError):
@@ -21,7 +21,7 @@ class SoundDeviceRecorder:
         self.sample_rate = sample_rate
         self._lock = threading.Lock()
         self._chunks: list[np.ndarray] = []
-        self._stream: sd.InputStream | None = None
+        self._stream: Any | None = None
         self._recording = False
 
     @property
@@ -36,6 +36,8 @@ class SoundDeviceRecorder:
         self._chunks = []
 
         try:
+            import sounddevice as sd
+
             self._stream = sd.InputStream(
                 samplerate=self.sample_rate,
                 channels=1,

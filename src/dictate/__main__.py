@@ -7,6 +7,7 @@ Usage:
     dictate --once            One-shot: record until Enter, print to stdout
     dictate --once --copy     One-shot: record until Enter, copy to clipboard
     dictate benchmark ...     Benchmark STT backends on local WAV files
+    dictate doctor ...        Diagnose environment/runtime setup
     dictate --stt-backend nemo-canary --model nvidia/canary-1b-flash
     dictate --type-backend wtype  Force typing backend for daemon mode
     dictate --model large-v3-turbo  Use a different STT model
@@ -21,6 +22,7 @@ from typing import Sequence
 
 from dictate.benchmark import run_benchmark
 from dictate.config import add_hotwords, load_config, remove_hotwords
+from dictate.doctor import run_doctor
 from dictate.engine import DictationEngine
 from dictate.outputs import (
     BackendUnavailableError,
@@ -45,7 +47,7 @@ SAMPLE_RATE = 16000
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Local voice-to-text for the terminal",
-        epilog="For STT benchmarking use: dictate benchmark --help",
+        epilog="Diagnostics: dictate benchmark --help | dictate doctor --help",
     )
     parser.add_argument(
         "--once",
@@ -117,6 +119,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     cli_args = list(argv) if argv is not None else sys.argv[1:]
     if cli_args and cli_args[0] == "benchmark":
         return run_benchmark(cli_args[1:])
+    if cli_args and cli_args[0] == "doctor":
+        return run_doctor(cli_args[1:])
 
     parser = build_parser()
     args = parser.parse_args(cli_args)
@@ -163,6 +167,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         hotwords=hotwords,
     )
     return 0
+
+
+def main_with_logging() -> int:
+    from dictate.runtime_logging import run_with_startup_logging
+
+    return run_with_startup_logging(main)
 
 
 def _run_preflight_or_exit(
@@ -382,4 +392,4 @@ def _run_tray(
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main_with_logging())
