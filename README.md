@@ -83,7 +83,7 @@ dictate doctor --quick
 dictate doctor --check-model-load
 ```
 
-Select model/device/language:
+Select model/device/compute-type/language:
 
 ```bash
 # default faster-whisper model is "base" (quickest cold-start, reliable offline if cached)
@@ -93,6 +93,8 @@ dictate --device cpu
 dictate --compute-type float16
 dictate --language en
 ```
+
+`--compute-type` affects `faster-whisper` only. For `nemo-canary`, it is ignored.
 
 ## STT Backends (RTX 4090)
 
@@ -161,10 +163,22 @@ In tray mode, a microphone icon appears in the system tray with a right-click me
 
 You can also quit from the terminal with `Ctrl+C`.
 
+Runtime profile presets currently shipped in tray:
+
+- `cuda / int8` (recommended default)
+- `cuda / float16`
+- `cpu / int8`
+- `auto / int8`
+
 ## Notes And Troubleshooting
 
 - First run will likely download model files (Whisper or NeMo, depending on backend). Network is required once per model.
 - Tray model/profile selections are persisted in `~/.config/dictate/config.yaml` and used on startup unless CLI flags override them.
+- Persisted STT config keys:
+  - `stt_backend`
+  - `stt_model`
+  - `stt_device`
+  - `stt_compute_type`
 - Preflight now checks STT backend readiness (dependency imports + CUDA visibility) before model load.
 - Startup stderr is mirrored to logs:
   - latest run: `~/.local/share/dictate/logs/latest.log`
