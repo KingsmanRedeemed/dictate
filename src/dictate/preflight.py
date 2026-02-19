@@ -13,6 +13,7 @@ from dictate.outputs import (
     detect_session_type,
     resolve_typing_backend,
 )
+from dictate.stt import ComputeDevice, SttBackend, check_backend_readiness
 
 
 @dataclass(slots=True)
@@ -31,10 +32,19 @@ def run_preflight(
     require_typing: bool,
     require_clipboard: bool,
     typing_backend: str = "auto",
+    stt_backend: SttBackend = "faster-whisper",
+    stt_model: str | None = None,
+    stt_device: ComputeDevice = "auto",
 ) -> PreflightReport:
     report = PreflightReport()
 
     _check_microphone(report)
+    _check_stt_backend(
+        report,
+        stt_backend=stt_backend,
+        stt_model=stt_model,
+        stt_device=stt_device,
+    )
     _check_typing(report, require_typing=require_typing, typing_backend=typing_backend)
     _check_clipboard(report, require_clipboard=require_clipboard)
     return report
@@ -79,6 +89,23 @@ def _check_microphone(report: PreflightReport) -> None:
             report.warnings.append("No default input device configured.")
     else:
         report.warnings.append("Unable to determine the default input device.")
+
+
+def _check_stt_backend(
+    report: PreflightReport,
+    *,
+    stt_backend: SttBackend,
+    stt_model: str | None,
+    stt_device: ComputeDevice,
+) -> None:
+    backend_report = check_backend_readiness(
+        backend=stt_backend,
+        model=stt_model,
+        device=stt_device,
+    )
+    report.errors.extend(backend_report.errors)
+    report.warnings.extend(backend_report.warnings)
+    report.notes.extend(backend_report.notes)
 
 
 def _check_typing(report: PreflightReport, *, require_typing: bool, typing_backend: str) -> None:

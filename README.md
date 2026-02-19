@@ -9,6 +9,7 @@ This is intended to be an always-available desktop utility (tray icon) and a CLI
 - Local speech-to-text with selectable backends:
   - `faster-whisper` (default)
   - `nemo-canary` (`nvidia/canary-1b`, `nvidia/canary-1b-flash`, `nvidia/canary-1b-v2`)
+- Capability-aware backend contract (`hotwords`, language hint handling) so unsupported options fail soft with clear warnings.
 - Push-to-talk daemon: `Right Ctrl` hold/release to record/transcribe/type.
 - System tray toggle (pause/resume dictation).
 - One-shot mode for terminal workflows (print to stdout or copy to clipboard).
@@ -143,6 +144,7 @@ You can also quit from the terminal with `Ctrl+C`.
 ## Notes And Troubleshooting
 
 - First run will likely download model files (Whisper or NeMo, depending on backend). Network is required once per model.
+- Preflight now checks STT backend readiness (dependency imports + CUDA visibility) before model load.
 - On Wayland:
   - `xdotool` generally will not work for native Wayland apps.
   - Prefer `wtype` (simple) or `ydotool` (may require extra setup/permissions).
@@ -150,6 +152,30 @@ You can also quit from the terminal with `Ctrl+C`.
 - If preflight reports missing tools, install them via your distro package manager (e.g. `xdotool`, `xclip`, `wtype`).
 - Dictation uses the system default microphone input device. If your default input is misconfigured, fix it in your OS audio settings.
 - If NeMo backend fails to load, install optional deps with `uv pip install -e ".[nemo]"`.
+
+## Benchmarking
+
+Use the local benchmark harness to compare backends/models on your own accent and vocabulary:
+
+```bash
+uv run python scripts/benchmark_stt.py \
+  --manifest benchmarks/example_manifest.csv \
+  --audio-root benchmarks \
+  --stt-backend nemo-canary \
+  --model nvidia/canary-1b-flash \
+  --device cuda \
+  --language en
+```
+
+Create your own manifest with Australian-accent phrases and proper nouns. Format docs: `benchmarks/README.md`.
+
+## Testing
+
+Run regression tests:
+
+```bash
+uv run python -m unittest discover -s tests
+```
 
 ## Development
 
@@ -159,6 +185,7 @@ You can also quit from the terminal with `Ctrl+C`.
   - transcription engine: `src/dictate/engine.py`
   - typing/clipboard outputs: `src/dictate/outputs.py`
   - environment checks: `src/dictate/preflight.py`
+  - STT backends + registry: `src/dictate/stt/`
 
 ## License
 

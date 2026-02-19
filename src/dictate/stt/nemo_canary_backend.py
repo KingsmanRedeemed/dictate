@@ -1,135 +1,42 @@
-"""Speech-to-text backend adapters."""
+"""NeMo Canary backend adapter."""
 
 from __future__ import annotations
 
+import atexit
 import inspect
 import logging
 import os
 import tempfile
+import threading
 import wave
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
-from faster_whisper import WhisperModel
+
+from dictate.stt.base import ComputeDevice, SpeechToText, SttCapabilities
 
 logger = logging.getLogger(__name__)
-
-FasterWhisperModel = Literal[
-    "tiny",
-    "base",
-    "small",
-    "medium",
-    "large-v3",
-    "turbo",
-    "large-v3-turbo",
-]
-ComputeDevice = Literal["cpu", "cuda", "auto"]
-ComputeType = Literal["int8", "float16", "float32"]
-SttBackend = Literal["faster-whisper", "nemo-canary"]
-
-DEFAULT_MODELS: dict[SttBackend, str] = {
-    "faster-whisper": "turbo",
-    "nemo-canary": "nvidia/canary-1b-flash",
-}
-NEMO_CANARY_MODELS = (
-    "nvidia/canary-1b",
-    "nvidia/canary-1b-flash",
-    "nvidia/canary-1b-v2",
-)
-
-
-def _normalize_faster_whisper_model(model_size: str) -> str:
-    if model_size == "large-v3-turbo":
-        return "turbo"
-    return model_size
-
-
-class SpeechToText:
-    """Base speech-to-text backend interface."""
-
-    backend_name = "base"
-    model_name = ""
-
-    @property
-    def model(self) -> Any:
-        raise NotImplementedError
-
-    def transcribe(
-        self,
-        audio: np.ndarray,
-        language: str | None = None,
-        hotwords: str | None = None,
-    ) -> str:
-        raise NotImplementedError
-
-
-class FasterWhisperSpeechToText(SpeechToText):
-    """Low-latency transcription using faster-whisper."""
-
-    backend_name = "faster-whisper"
-
-    def __init__(
-        self,
-        model_size: str = "turbo",
-        device: ComputeDevice = "auto",
-        compute_type: ComputeType = "int8",
-    ):
-        self.model_name = _normalize_faster_whisper_model(model_size)
-        self.device = device
-        self.compute_type = compute_type
-        self._model: WhisperModel | None = None
-
-    @property
-    def model(self) -> WhisperModel:
-        if self._model is None:
-            logger.info(
-                "Loading faster-whisper model: %s (%s)",
-                self.model_name,
-                self.compute_type,
-            )
-            self._model = WhisperModel(
-                self.model_name,
-                device=self.device,
-                compute_type=self.compute_type,
-            )
-            logger.info("Model loaded")
-        return self._model
-
-    def transcribe(
-        self,
-        audio: np.ndarray,
-        language: str | None = None,
-        hotwords: str | None = None,
-    ) -> str:
-        """Transcribe float32 16kHz mono audio to text."""
-        segments, _info = self.model.transcribe(
-            audio,
-            language=language,
-            beam_size=1,
-            vad_filter=True,
-            vad_parameters=dict(
-                min_silence_duration_ms=500,
-                speech_pad_ms=200,
-            ),
-            hotwords=hotwords,
-        )
-        return " ".join(seg.text.strip() for seg in segments)
 
 
 class NeMoCanarySpeechToText(SpeechToText):
     """NVIDIA NeMo Canary backend."""
 
     backend_name = "nemo-canary"
+    capabilities = SttCapabilities(
+        supports_hotwords=False,
+        supports_language_hint=True,
+    )
 
     def __init__(
         self,
-        model_name: str = DEFAULT_MODELS["nemo-canary"],
+        model_name: str = "nvidia/canary-1b-flash",
         device: ComputeDevice = "auto",
     ):
         self.model_name = model_name
         self.device = device
         self._model: Any | None = None
-        self._warned_hotwords = False
+        self._temp_wav_path: str | None = None
+        self._io_lock = threading.Lock()
 
     @property
     def model(self) -> Any:
@@ -201,21 +108,29 @@ class NeMoCanarySpeechToText(SpeechToText):
         language: str | None = None,
         hotwords: str | None = None,
     ) -> str:
-        if hotwords and not self._warned_hotwords:
-            logger.warning(
-                "Hotwords are not supported by the NeMo Canary backend yet; ignoring hotwords."
-            )
-            self._warned_hotwords = True
-
-        wav_path = _write_temp_wav(audio)
-        try:
+        del hotwords
+        with self._io_lock:
+            wav_path = self._get_temp_wav_path()
+            _write_wav_file(wav_path, audio)
             outputs = self._transcribe_path(wav_path, language=language)
-            return self._extract_text(outputs).strip()
-        finally:
-            try:
-                os.unlink(wav_path)
-            except OSError:
-                pass
+        return self._extract_text(outputs).strip()
+
+    def _get_temp_wav_path(self) -> str:
+        if self._temp_wav_path is not None:
+            return self._temp_wav_path
+        temp = tempfile.NamedTemporaryFile(prefix="dictate-", suffix=".wav", delete=False)
+        temp.close()
+        self._temp_wav_path = temp.name
+        atexit.register(self._cleanup_temp_wav)
+        return self._temp_wav_path
+
+    def _cleanup_temp_wav(self) -> None:
+        if not self._temp_wav_path:
+            return
+        try:
+            os.unlink(self._temp_wav_path)
+        except OSError:
+            pass
 
     def _transcribe_path(self, wav_path: str, *, language: str | None) -> Any:
         transcribe_fn = self.model.transcribe
@@ -252,36 +167,11 @@ class NeMoCanarySpeechToText(SpeechToText):
         return str(outputs)
 
 
-def _write_temp_wav(audio: np.ndarray, sample_rate: int = 16000) -> str:
+def _write_wav_file(path: str, audio: np.ndarray, sample_rate: int = 16000) -> None:
     clipped = np.clip(audio, -1.0, 1.0)
     pcm = (clipped * 32767).astype(np.int16)
-
-    with tempfile.NamedTemporaryFile(prefix="dictate-", suffix=".wav", delete=False) as temp:
-        wav_path = temp.name
-
-    with wave.open(wav_path, "wb") as wav_file:
+    with wave.open(path, "wb") as wav_file:
         wav_file.setnchannels(1)
         wav_file.setsampwidth(2)
         wav_file.setframerate(sample_rate)
         wav_file.writeframes(pcm.tobytes())
-
-    return wav_path
-
-
-def create_speech_to_text(
-    *,
-    backend: SttBackend = "faster-whisper",
-    model: str | None = None,
-    device: ComputeDevice = "auto",
-    compute_type: ComputeType = "int8",
-) -> SpeechToText:
-    model_name = model or DEFAULT_MODELS[backend]
-    if backend == "faster-whisper":
-        return FasterWhisperSpeechToText(
-            model_size=model_name,
-            device=device,
-            compute_type=compute_type,
-        )
-    if backend == "nemo-canary":
-        return NeMoCanarySpeechToText(model_name=model_name, device=device)
-    raise ValueError(f"Unsupported STT backend: {backend}")

@@ -67,7 +67,7 @@ class TrayIcon:
         dialog.destroy()
 
         # Live-reload: update engine hotwords from saved config
-        self.daemon.engine.hotwords = load_config().hotwords_str
+        self.daemon.engine.set_hotwords(load_config().hotwords_str)
 
     def _on_quit(self, _item):
         self.daemon.shutdown()

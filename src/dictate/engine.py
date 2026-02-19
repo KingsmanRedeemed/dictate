@@ -33,7 +33,14 @@ class DictationEngine:
         self.stt = stt
         self.sample_rate = sample_rate
         self.min_duration_s = min_duration_s
-        self.hotwords = hotwords
+        self.hotwords = hotwords if stt.capabilities.supports_hotwords else None
+
+    @property
+    def supports_hotwords(self) -> bool:
+        return self.stt.capabilities.supports_hotwords
+
+    def set_hotwords(self, hotwords: str | None) -> None:
+        self.hotwords = hotwords if self.supports_hotwords else None
 
     def duration_s(self, audio: np.ndarray) -> float:
         return len(audio) / self.sample_rate

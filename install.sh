@@ -29,7 +29,7 @@ Exec=$HOME/.local/bin/dictate
 Icon=microphone-sensitivity-high-symbolic
 Type=Application
 Categories=Utility;Audio;
-Keywords=voice;speech;transcription;dictation;whisper;
+Keywords=voice;speech;transcription;dictation;asr;whisper;canary;
 EOF
 
 update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
