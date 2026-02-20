@@ -9,13 +9,15 @@ This is intended to be an always-available desktop utility (tray icon) and a CLI
 - Local speech-to-text with selectable backends:
   - `faster-whisper` (default)
   - `nemo-canary` (`nvidia/canary-1b`, `nvidia/canary-1b-flash`, `nvidia/canary-1b-v2`)
-- Capability-aware backend contract (`hotwords`, language hint handling) so unsupported options fail soft with clear warnings.
+- Capability-aware backend contract (`hotwords`, prompt bias, language hint handling) so unsupported options fail soft with clear warnings.
+- Backend-agnostic lexical adaptation modes: `native`, `prompt`, `post`, `hybrid`.
 - Push-to-talk daemon: `Right Ctrl` hold/release to record/transcribe/type.
 - System tray toggle (pause/resume dictation).
 - Tray menu STT switcher (change backend/model without restart).
 - Tray runtime profile switcher (device/compute tuning without restart).
 - One-shot mode for terminal workflows (print to stdout or copy to clipboard).
 - Typing backend auto-selection (`xdotool` on X11, `wtype`/`ydotool` on Wayland if installed).
+- Explicit backend resource release on switch (including CUDA cache cleanup when switching away from NeMo Canary).
 
 ## Requirements
 
@@ -92,6 +94,7 @@ dictate --stt-backend nemo-canary --model nvidia/canary-1b-flash
 dictate --device cpu
 dictate --compute-type float16
 dictate --language en
+dictate --lexicon-mode hybrid
 ```
 
 `--compute-type` affects `faster-whisper` only. For `nemo-canary`, it is ignored.
@@ -100,6 +103,14 @@ Prepare/download a heavy model ahead of activation:
 
 ```bash
 dictate prepare-model --stt-backend nemo-canary --model nvidia/canary-1b-flash --device auto --compute-type int8
+```
+
+Manage lexical post-corrections:
+
+```bash
+dictate --add-lexicon-replacement kinneri=canary
+dictate --remove-lexicon-replacement kinneri
+dictate --list-lexicon-replacements
 ```
 
 ## STT Backends (RTX 4090)
@@ -144,7 +155,7 @@ dictate --type-backend ydotool
 
 ## Hotwords
 
-Hotwords improve recognition of custom vocabulary (project names, technical terms, etc.) that Whisper might otherwise mishear.
+Hotwords improve recognition of custom vocabulary (project names, technical terms, etc.).
 
 Manage saved hotwords:
 
@@ -172,6 +183,12 @@ Lexical adaptation modes (backend-agnostic):
 - `post`: run lightweight post-correction against hotwords/replacements
 - `hybrid`: apply all supported strategies
 
+Mode behavior by backend:
+
+- `faster-whisper`: `native`/`hybrid` applies decode-time hotword bias.
+- `nemo-canary`: use `prompt` or `hybrid` for prompt/context biasing, and/or `post`/`hybrid` for post-correction.
+- In `native` mode on backends without native hotwords, hotwords are ignored with a warning.
+
 Examples:
 
 ```bash
@@ -183,6 +200,7 @@ dictate --lexicon-mode hybrid
 
 # Add explicit post-correction replacements
 dictate --add-lexicon-replacement kinneri=canary
+dictate --remove-lexicon-replacement kinneri
 dictate --list-lexicon-replacements
 ```
 
@@ -195,6 +213,7 @@ In tray mode, a microphone icon appears in the system tray with a right-click me
 - **Dictation active** — checkbox to pause/resume listening for the hotkey. The icon switches to a muted microphone when paused.
 - **Speech Model** — switch backend/model live. For unprepared `nemo-canary` choices, Dictate first runs a subprocess preparation step, then activates on success.
 - **Runtime Profile** — switch device/compute profile live (for example `cuda/int8`, `cuda/float16`, `cpu/int8`).
+- Switching away from a loaded backend releases prior model resources; for NeMo Canary this includes CUDA cache cleanup to avoid long-lived VRAM retention.
 - If switching fails, Dictate keeps the previous model active and shows an error dialog.
 - **Quit** — stops the daemon.
 
@@ -211,13 +230,14 @@ Runtime profile presets currently shipped in tray:
 
 - First run will likely download model files (Whisper or NeMo, depending on backend). Network is required once per model.
 - Tray model/profile selections are persisted in `~/.config/dictate/config.yaml` and used on startup unless CLI flags override them.
-- Persisted STT config keys:
+- Persisted STT selection keys:
   - `stt_backend`
   - `stt_model`
   - `stt_device`
   - `stt_compute_type`
-  - `lexicon_mode` (optional)
-  - `lexicon_replacements` (optional)
+- Additional recognized config keys:
+  - `lexicon_mode` (optional startup default; set manually in config)
+  - `lexicon_replacements` (managed by CLI replacement commands)
 - Preflight now checks STT backend readiness (dependency imports + CUDA visibility) before model load.
 - Startup stderr is mirrored to logs:
   - latest run: `~/.local/share/dictate/logs/latest.log`
