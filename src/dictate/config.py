@@ -16,6 +16,8 @@ CONFIG_PATH = Path.home() / ".config" / "dictate" / "config.yaml"
 @dataclass(slots=True)
 class Config:
     hotwords: list[str] = field(default_factory=list)
+    lexicon_mode: str | None = None
+    lexicon_replacements: dict[str, str] = field(default_factory=dict)
     stt_backend: str | None = None
     stt_model: str | None = None
     stt_device: str | None = None
@@ -41,6 +43,22 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
     hotwords = data.get("hotwords", [])
     if isinstance(hotwords, str):
         hotwords = [hotwords]
+    if not isinstance(hotwords, list):
+        hotwords = []
+
+    lexicon_mode = data.get("lexicon_mode")
+    if not isinstance(lexicon_mode, str):
+        lexicon_mode = None
+
+    lexicon_replacements_raw = data.get("lexicon_replacements", {})
+    lexicon_replacements: dict[str, str] = {}
+    if isinstance(lexicon_replacements_raw, dict):
+        for wrong, right in lexicon_replacements_raw.items():
+            if isinstance(wrong, str) and isinstance(right, str):
+                wrong_clean = wrong.strip()
+                right_clean = right.strip()
+                if wrong_clean and right_clean:
+                    lexicon_replacements[wrong_clean] = right_clean
 
     stt_backend = data.get("stt_backend")
     stt_model = data.get("stt_model")
@@ -57,6 +75,8 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
 
     return Config(
         hotwords=hotwords,
+        lexicon_mode=lexicon_mode,
+        lexicon_replacements=lexicon_replacements,
         stt_backend=stt_backend,
         stt_model=stt_model,
         stt_device=stt_device,
@@ -122,3 +142,46 @@ def set_stt_runtime_profile(device: str, compute_type: str, path: Path = CONFIG_
     data["stt_device"] = device
     data["stt_compute_type"] = compute_type
     _save_raw(data, path)
+
+
+def add_lexicon_replacements(
+    replacements: dict[str, str],
+    path: Path = CONFIG_PATH,
+) -> dict[str, str]:
+    """Add or update lexical post-correction replacements."""
+    data = _load_raw(path)
+    existing = data.get("lexicon_replacements", {})
+    if not isinstance(existing, dict):
+        existing = {}
+
+    updated: dict[str, str] = {}
+    for wrong, right in replacements.items():
+        wrong_clean = wrong.strip()
+        right_clean = right.strip()
+        if not wrong_clean or not right_clean:
+            continue
+        existing[wrong_clean] = right_clean
+        updated[wrong_clean] = right_clean
+
+    if updated:
+        data["lexicon_replacements"] = existing
+        _save_raw(data, path)
+    return updated
+
+
+def remove_lexicon_replacements(words: list[str], path: Path = CONFIG_PATH) -> list[str]:
+    """Remove lexical post-correction replacements by their source word."""
+    data = _load_raw(path)
+    existing = data.get("lexicon_replacements", {})
+    if not isinstance(existing, dict):
+        return []
+
+    removed: list[str] = []
+    for word in words:
+        if word in existing:
+            removed.append(word)
+            existing.pop(word, None)
+    if removed:
+        data["lexicon_replacements"] = existing
+        _save_raw(data, path)
+    return removed

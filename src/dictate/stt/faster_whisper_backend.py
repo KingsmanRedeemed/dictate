@@ -24,6 +24,7 @@ class FasterWhisperSpeechToText(SpeechToText):
     backend_name = "faster-whisper"
     capabilities = SttCapabilities(
         supports_hotwords=True,
+        supports_prompt_bias=False,
         supports_language_hint=True,
     )
 
@@ -59,7 +60,9 @@ class FasterWhisperSpeechToText(SpeechToText):
         audio: np.ndarray,
         language: str | None = None,
         hotwords: str | None = None,
+        prompt_context: str | None = None,
     ) -> str:
+        del prompt_context
         segments, _info = self.model.transcribe(
             audio,
             language=language,
@@ -72,3 +75,6 @@ class FasterWhisperSpeechToText(SpeechToText):
             hotwords=hotwords,
         )
         return " ".join(seg.text.strip() for seg in segments)
+
+    def release(self) -> None:
+        self._model = None

@@ -8,6 +8,7 @@ Usage:
     dictate --once --copy     One-shot: record until Enter, copy to clipboard
     dictate benchmark ...     Benchmark STT backends on local WAV files
     dictate doctor ...        Diagnose environment/runtime setup
+    dictate prepare-model ... Prepare/download a model before activation
     dictate --stt-backend nemo-canary --model nvidia/canary-1b-flash
     dictate --type-backend wtype  Force typing backend for daemon mode
     dictate --model large-v3-turbo  Use a different STT model
@@ -16,14 +17,28 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 import threading
 from typing import Sequence
 
+# Disable HF Xet transport by default to avoid observed hangs on large Canary artifacts.
+# Users can override by setting HF_HUB_DISABLE_XET=0 before launch.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+
 from dictate.benchmark import run_benchmark
-from dictate.config import Config, add_hotwords, load_config, remove_hotwords
+from dictate.config import (
+    Config,
+    add_hotwords,
+    add_lexicon_replacements,
+    load_config,
+    remove_hotwords,
+    remove_lexicon_replacements,
+)
 from dictate.doctor import run_doctor
 from dictate.engine import DictationEngine
+from dictate.lexicon import LEXICON_MODES, LexiconMode, normalize_lexicon_mode
+from dictate.model_prepare import run_prepare_model
 from dictate.outputs import (
     BackendUnavailableError,
     ClipboardOutput,
@@ -100,6 +115,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Language code (e.g. en). Auto-detect if omitted",
     )
     parser.add_argument(
+        "--lexicon-mode",
+        choices=LEXICON_MODES,
+        default="native",
+        help="Lexical adaptation mode: native, prompt, post, hybrid (default: native)",
+    )
+    parser.add_argument(
         "--hotwords",
         default=None,
         help="Comma-separated words to boost recognition (e.g. 'OpenBao,Vikunja')",
@@ -119,11 +140,33 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="List saved hotwords and exit.",
     )
+    parser.add_argument(
+        "--add-lexicon-replacement",
+        action="append",
+        metavar="WRONG=RIGHT",
+        help=(
+            "Add lexical post-correction replacement(s), for example "
+            "--add-lexicon-replacement kinneri=canary"
+        ),
+    )
+    parser.add_argument(
+        "--remove-lexicon-replacement",
+        action="append",
+        metavar="WRONG",
+        help="Remove lexical post-correction replacement(s) by source form.",
+    )
+    parser.add_argument(
+        "--list-lexicon-replacements",
+        action="store_true",
+        help="List configured lexical post-correction replacements and exit.",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     cli_args = list(argv) if argv is not None else sys.argv[1:]
+    if cli_args and cli_args[0] == "prepare-model":
+        return run_prepare_model(cli_args[1:])
     if cli_args and cli_args[0] == "benchmark":
         return run_benchmark(cli_args[1:])
     if cli_args and cli_args[0] == "doctor":
@@ -139,6 +182,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     config = load_config()
     stt_backend, model_name = _resolve_startup_stt(args=args, cli_args=cli_args, config=config)
     stt_device, stt_compute_type = _resolve_startup_runtime(
+        args=args,
+        cli_args=cli_args,
+        config=config,
+    )
+    lexicon_mode = _resolve_startup_lexicon_mode(
         args=args,
         cli_args=cli_args,
         config=config,
@@ -160,10 +208,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         compute_type=stt_compute_type,
     )
     language = _resolve_language(stt, args.language)
-    hotwords = _resolve_hotwords(stt, config=config, cli_hotwords=args.hotwords)
+    hotwords = _resolve_hotwords(
+        stt,
+        config=config,
+        cli_hotwords=args.hotwords,
+        lexicon_mode=lexicon_mode,
+    )
 
     if args.once:
-        _run_once(stt, copy_to_clipboard=args.copy, language=language, hotwords=hotwords)
+        _run_once(
+            stt,
+            copy_to_clipboard=args.copy,
+            language=language,
+            hotwords=hotwords,
+            lexicon_mode=lexicon_mode,
+            lexicon_replacements=config.lexicon_replacements,
+        )
         return 0
     if args.no_tray:
         _run_headless(
@@ -171,6 +231,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             type_backend=args.type_backend,
             language=language,
             hotwords=hotwords,
+            lexicon_mode=lexicon_mode,
+            lexicon_replacements=config.lexicon_replacements,
         )
         return 0
     _run_tray(
@@ -178,11 +240,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         type_backend=args.type_backend,
         language=language,
         hotwords=hotwords,
+        lexicon_mode=lexicon_mode,
+        lexicon_replacements=config.lexicon_replacements,
     )
     return 0
 
 
 def main_with_logging() -> int:
+    if os.environ.get("DICTATE_DISABLE_STARTUP_LOG") == "1":
+        return main()
     from dictate.runtime_logging import run_with_startup_logging
 
     return run_with_startup_logging(main)
@@ -241,6 +307,25 @@ def _resolve_startup_runtime(
         )
 
     return (device, compute_type)
+
+
+def _resolve_startup_lexicon_mode(
+    *,
+    args,  # noqa: ANN001
+    cli_args: Sequence[str],
+    config: Config,
+) -> LexiconMode:
+    mode_flag = _flag_in_args(cli_args, "--lexicon-mode")
+    if not mode_flag and config.lexicon_mode in LEXICON_MODES:
+        mode = normalize_lexicon_mode(config.lexicon_mode)
+        print(f"Using saved lexicon mode: {mode}", file=sys.stderr)
+        return mode
+    if not mode_flag and config.lexicon_mode:
+        print(
+            f"Ignoring invalid saved lexicon mode '{config.lexicon_mode}' in config.",
+            file=sys.stderr,
+        )
+    return normalize_lexicon_mode(args.lexicon_mode)
 
 
 def _flag_in_args(cli_args: Sequence[str], name: str) -> bool:
@@ -325,6 +410,7 @@ def _resolve_hotwords(
     *,
     config: Config,
     cli_hotwords: str | None,
+    lexicon_mode: LexiconMode,
 ) -> str | None:
     words = list(config.hotwords)
     if cli_hotwords:
@@ -332,7 +418,7 @@ def _resolve_hotwords(
     hotwords_str = " ".join(words) if words else None
     if not hotwords_str:
         return None
-    if not stt.capabilities.supports_hotwords:
+    if lexicon_mode == "native" and not stt.capabilities.supports_hotwords:
         print(
             (
                 f"Warning: backend '{stt.backend_name}' does not support hotwords; "
@@ -341,7 +427,20 @@ def _resolve_hotwords(
             file=sys.stderr,
         )
         return None
-    print(f"Hotwords: {hotwords_str}", file=sys.stderr)
+    if lexicon_mode in {"native", "hybrid"} and stt.capabilities.supports_hotwords:
+        print(f"Hotwords (native decode): {hotwords_str}", file=sys.stderr)
+    if lexicon_mode in {"prompt", "hybrid"} and stt.capabilities.supports_prompt_bias:
+        print(f"Hotwords (prompt bias): {hotwords_str}", file=sys.stderr)
+    if lexicon_mode in {"post", "hybrid"}:
+        print(f"Hotwords (post correction): {hotwords_str}", file=sys.stderr)
+    if lexicon_mode in {"prompt", "hybrid"} and not stt.capabilities.supports_prompt_bias:
+        print(
+            (
+                f"Warning: backend '{stt.backend_name}' does not support prompt biasing; "
+                "prompt lexicon mode will have no effect."
+            ),
+            file=sys.stderr,
+        )
     return hotwords_str
 
 
@@ -376,6 +475,50 @@ def _handle_hotword_commands(args) -> int | None:  # noqa: ANN001
         else:
             print("No hotwords configured.", file=sys.stderr)
         return 0
+
+    if args.add_lexicon_replacement:
+        replacements: dict[str, str] = {}
+        for item in args.add_lexicon_replacement:
+            if "=" not in item:
+                print(
+                    f"Invalid --add-lexicon-replacement value '{item}' (expected WRONG=RIGHT).",
+                    file=sys.stderr,
+                )
+                return 2
+            wrong, right = item.split("=", 1)
+            wrong_clean = wrong.strip()
+            right_clean = right.strip()
+            if not wrong_clean or not right_clean:
+                print(
+                    f"Invalid --add-lexicon-replacement value '{item}' (empty side).",
+                    file=sys.stderr,
+                )
+                return 2
+            replacements[wrong_clean] = right_clean
+        added = add_lexicon_replacements(replacements)
+        if added:
+            for wrong, right in added.items():
+                print(f"Added replacement: {wrong} -> {right}", file=sys.stderr)
+        else:
+            print("No replacements added.", file=sys.stderr)
+        return 0
+
+    if args.remove_lexicon_replacement:
+        removed = remove_lexicon_replacements(args.remove_lexicon_replacement)
+        if removed:
+            print(f"Removed replacements: {', '.join(removed)}", file=sys.stderr)
+        else:
+            print("No matching replacements found.", file=sys.stderr)
+        return 0
+
+    if args.list_lexicon_replacements:
+        config = load_config()
+        if config.lexicon_replacements:
+            for wrong, right in sorted(config.lexicon_replacements.items()):
+                print(f"{wrong} -> {right}")
+        else:
+            print("No lexicon replacements configured.", file=sys.stderr)
+        return 0
     return None
 
 
@@ -405,11 +548,19 @@ def _run_once(
     copy_to_clipboard: bool,
     language: str | None,
     hotwords: str | None,
+    lexicon_mode: LexiconMode,
+    lexicon_replacements: dict[str, str] | None,
 ) -> None:
     from dictate.audio import AudioCaptureError, SoundDeviceRecorder
 
     recorder = SoundDeviceRecorder(sample_rate=SAMPLE_RATE)
-    engine = DictationEngine(stt=stt, sample_rate=SAMPLE_RATE, hotwords=hotwords)
+    engine = DictationEngine(
+        stt=stt,
+        sample_rate=SAMPLE_RATE,
+        hotwords=hotwords,
+        lexicon_mode=lexicon_mode,
+        lexicon_replacements=lexicon_replacements,
+    )
 
     try:
         audio = record_until_enter(recorder)
@@ -456,11 +607,20 @@ def _run_headless(
     type_backend: str,
     language: str | None,
     hotwords: str | None,
+    lexicon_mode: LexiconMode,
+    lexicon_replacements: dict[str, str] | None,
 ) -> None:
     from dictate.daemon import Daemon
 
     output = _resolve_typing_output_or_exit(type_backend)
-    Daemon(stt, output=output, language=language, hotwords=hotwords).run()
+    Daemon(
+        stt,
+        output=output,
+        language=language,
+        hotwords=hotwords,
+        lexicon_mode=lexicon_mode,
+        lexicon_replacements=lexicon_replacements,
+    ).run()
 
 
 def _run_tray(
@@ -469,12 +629,23 @@ def _run_tray(
     type_backend: str,
     language: str | None,
     hotwords: str | None,
+    lexicon_mode: LexiconMode,
+    lexicon_replacements: dict[str, str] | None,
 ) -> None:
     from dictate.daemon import Daemon
     from dictate.tray import TrayIcon
 
     output = _resolve_typing_output_or_exit(type_backend)
-    TrayIcon(Daemon(stt, output=output, language=language, hotwords=hotwords)).run()
+    TrayIcon(
+        Daemon(
+            stt,
+            output=output,
+            language=language,
+            hotwords=hotwords,
+            lexicon_mode=lexicon_mode,
+            lexicon_replacements=lexicon_replacements,
+        )
+    ).run()
 
 
 if __name__ == "__main__":

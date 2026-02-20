@@ -4,7 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dictate.config import add_hotwords, load_config, set_stt_runtime_profile, set_stt_selection
+from dictate.config import (
+    add_hotwords,
+    add_lexicon_replacements,
+    load_config,
+    remove_lexicon_replacements,
+    set_stt_runtime_profile,
+    set_stt_selection,
+)
 
 
 class ConfigSelectionTests(unittest.TestCase):
@@ -30,6 +37,25 @@ class ConfigSelectionTests(unittest.TestCase):
             self.assertEqual(config.stt_model, "nvidia/canary-1b-flash")
             self.assertEqual(config.stt_device, "cuda")
             self.assertEqual(config.stt_compute_type, "float16")
+
+    def test_lexicon_replacements_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.yaml"
+            add_lexicon_replacements(
+                {
+                    "kinneri": "canary",
+                    "openbow": "OpenBao",
+                },
+                path=config_path,
+            )
+            removed = remove_lexicon_replacements(["openbow"], path=config_path)
+            self.assertEqual(removed, ["openbow"])
+
+            config = load_config(path=config_path)
+            self.assertEqual(
+                config.lexicon_replacements,
+                {"kinneri": "canary"},
+            )
 
 
 if __name__ == "__main__":

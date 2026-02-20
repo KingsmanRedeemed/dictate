@@ -24,6 +24,7 @@ SttBackend = Literal["faster-whisper", "nemo-canary"]
 @dataclass(frozen=True, slots=True)
 class SttCapabilities:
     supports_hotwords: bool = False
+    supports_prompt_bias: bool = False
     supports_language_hint: bool = True
     supports_word_timestamps: bool = False
 
@@ -44,5 +45,10 @@ class SpeechToText:
         audio: np.ndarray,
         language: str | None = None,
         hotwords: str | None = None,
+        prompt_context: str | None = None,
     ) -> str:
         raise NotImplementedError
+
+    def release(self) -> None:
+        """Release backend resources (for example GPU memory caches)."""
+        return

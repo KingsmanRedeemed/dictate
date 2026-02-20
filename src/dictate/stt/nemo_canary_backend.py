@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import atexit
+import gc
 import inspect
 import logging
 import os
 import tempfile
 import threading
 import wave
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -24,6 +26,7 @@ class NeMoCanarySpeechToText(SpeechToText):
     backend_name = "nemo-canary"
     capabilities = SttCapabilities(
         supports_hotwords=False,
+        supports_prompt_bias=True,
         supports_language_hint=True,
     )
 
@@ -37,6 +40,7 @@ class NeMoCanarySpeechToText(SpeechToText):
         self._model: Any | None = None
         self._temp_wav_path: str | None = None
         self._io_lock = threading.Lock()
+        self._warned_context_unsupported = False
 
     @property
     def model(self) -> Any:
@@ -46,11 +50,15 @@ class NeMoCanarySpeechToText(SpeechToText):
 
     def _load_model(self) -> Any:
         logger.info("Loading NeMo model: %s", self.model_name)
+        # Work around observed hangs in hf_xet on large Canary artifacts.
+        # Users can override by exporting HF_HUB_DISABLE_XET=0 before launch.
+        os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+        self._cleanup_hf_partial_downloads(self.model_name)
         try:
             from nemo.collections.asr.models import ASRModel
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(
-                "NeMo backend requires nemo_toolkit[asr]. Install with: uv pip install '.[nemo]'"
+                'NeMo backend requires nemo_toolkit[asr]. Install with: uv pip install -e ".[nemo]"'
             ) from exc
 
         loader_errors: list[str] = []
@@ -83,6 +91,26 @@ class NeMoCanarySpeechToText(SpeechToText):
         return model
 
     @staticmethod
+    def _cleanup_hf_partial_downloads(model_name: str) -> None:
+        # Remove stale partials/locks from interrupted xet downloads so standard hub fetch can proceed.
+        try:
+            repo_dir_name = f"models--{model_name.replace('/', '--')}"
+            hub_root = Path.home() / ".cache" / "huggingface" / "hub"
+
+            blobs_dir = hub_root / repo_dir_name / "blobs"
+            if blobs_dir.is_dir():
+                for partial in blobs_dir.glob("*.incomplete"):
+                    partial.unlink(missing_ok=True)
+
+            locks_dir = hub_root / ".locks" / repo_dir_name
+            if locks_dir.is_dir():
+                for lock_file in locks_dir.glob("*.lock"):
+                    lock_file.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            # Best-effort cleanup only; never block model loading on cache hygiene.
+            return
+
+    @staticmethod
     def _resolve_loader(loader_name: str, asr_model_cls: Any) -> Any | None:
         if loader_name == "ASRModel":
             return asr_model_cls.from_pretrained
@@ -107,12 +135,17 @@ class NeMoCanarySpeechToText(SpeechToText):
         audio: np.ndarray,
         language: str | None = None,
         hotwords: str | None = None,
+        prompt_context: str | None = None,
     ) -> str:
         del hotwords
         with self._io_lock:
             wav_path = self._get_temp_wav_path()
             _write_wav_file(wav_path, audio)
-            outputs = self._transcribe_path(wav_path, language=language)
+            outputs = self._transcribe_path(
+                wav_path,
+                language=language,
+                prompt_context=prompt_context,
+            )
         return self._extract_text(outputs).strip()
 
     def _get_temp_wav_path(self) -> str:
@@ -132,7 +165,13 @@ class NeMoCanarySpeechToText(SpeechToText):
         except OSError:
             pass
 
-    def _transcribe_path(self, wav_path: str, *, language: str | None) -> Any:
+    def _transcribe_path(
+        self,
+        wav_path: str,
+        *,
+        language: str | None,
+        prompt_context: str | None,
+    ) -> Any:
         transcribe_fn = self.model.transcribe
         params = inspect.signature(transcribe_fn).parameters
         kwargs: dict[str, Any] = {}
@@ -145,8 +184,22 @@ class NeMoCanarySpeechToText(SpeechToText):
             kwargs["source_lang"] = language or "en"
         if "target_lang" in params:
             kwargs["target_lang"] = language or "en"
+        if prompt_context:
+            kwargs["context"] = prompt_context
 
-        return transcribe_fn([wav_path], **kwargs)
+        try:
+            return transcribe_fn([wav_path], **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            if prompt_context and self._is_context_unsupported_error(exc):
+                kwargs.pop("context", None)
+                if not self._warned_context_unsupported:
+                    logger.warning(
+                        "Canary model '%s' does not support prompt context; continuing without it.",
+                        self.model_name,
+                    )
+                    self._warned_context_unsupported = True
+                return transcribe_fn([wav_path], **kwargs)
+            raise
 
     @classmethod
     def _extract_text(cls, outputs: Any) -> str:
@@ -165,6 +218,23 @@ class NeMoCanarySpeechToText(SpeechToText):
         if hasattr(outputs, "text"):
             return str(outputs.text)
         return str(outputs)
+
+    @staticmethod
+    def _is_context_unsupported_error(exc: Exception) -> bool:
+        message = str(exc).lower()
+        return "context feature is not supported" in message
+
+    def release(self) -> None:
+        self._model = None
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+        except Exception:  # noqa: BLE001
+            return
 
 
 def _write_wav_file(path: str, audio: np.ndarray, sample_rate: int = 16000) -> None:

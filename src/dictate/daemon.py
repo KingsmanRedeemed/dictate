@@ -11,6 +11,7 @@ from pynput import keyboard
 
 from dictate.audio import AudioCaptureError, SoundDeviceRecorder
 from dictate.engine import DictationEngine, TranscriptionResult
+from dictate.lexicon import LexiconMode
 from dictate.outputs import TextOutput
 from dictate.stt import SpeechToText
 
@@ -25,11 +26,19 @@ class Daemon:
         output: TextOutput,
         language: str | None = None,
         hotwords: str | None = None,
+        lexicon_mode: LexiconMode = "native",
+        lexicon_replacements: dict[str, str] | None = None,
     ):
         self.active = True
         self.language = language
         self.output = output
-        self.engine = DictationEngine(stt=stt, sample_rate=SAMPLE_RATE, hotwords=hotwords)
+        self.engine = DictationEngine(
+            stt=stt,
+            sample_rate=SAMPLE_RATE,
+            hotwords=hotwords,
+            lexicon_mode=lexicon_mode,
+            lexicon_replacements=lexicon_replacements,
+        )
         self.recorder = SoundDeviceRecorder(sample_rate=SAMPLE_RATE)
         self._engine_lock = threading.Lock()
 
@@ -55,9 +64,16 @@ class Daemon:
 
     def switch_speech_to_text(self, stt: SpeechToText, *, hotwords: str | None = None) -> None:
         """Swap STT backend/model at runtime."""
+        previous_stt: SpeechToText | None = None
         with self._engine_lock:
+            previous_stt = self.engine.stt
             self.engine.stt = stt
             self.engine.set_hotwords(hotwords)
+        if previous_stt is not None and previous_stt is not stt:
+            try:
+                previous_stt.release()
+            except Exception as exc:  # noqa: BLE001
+                print(f"Failed to release previous STT resources: {exc}", file=sys.stderr)
 
     def current_backend_model(self) -> tuple[str, str]:
         """Return active backend/model selection."""
@@ -84,6 +100,12 @@ class Daemon:
 
         if self._listener:
             self._listener.stop()
+
+        with self._engine_lock:
+            try:
+                self.engine.stt.release()
+            except Exception:  # noqa: BLE001
+                pass
 
         self._audio_queue.put(None)
 

@@ -96,6 +96,12 @@ dictate --language en
 
 `--compute-type` affects `faster-whisper` only. For `nemo-canary`, it is ignored.
 
+Prepare/download a heavy model ahead of activation:
+
+```bash
+dictate prepare-model --stt-backend nemo-canary --model nvidia/canary-1b-flash --device auto --compute-type int8
+```
+
 ## STT Backends (RTX 4090)
 
 Recommended defaults for low-latency dictation:
@@ -140,8 +146,6 @@ dictate --type-backend ydotool
 
 Hotwords improve recognition of custom vocabulary (project names, technical terms, etc.) that Whisper might otherwise mishear.
 
-Hotwords are currently applied only on the `faster-whisper` backend.
-
 Manage saved hotwords:
 
 ```bash
@@ -161,6 +165,27 @@ dictate --hotwords "Kubernetes,OpenBao"
 
 CLI `--hotwords` and saved hotwords are merged at startup.
 
+Lexical adaptation modes (backend-agnostic):
+
+- `native` (default): use backend-native hotword biasing (effective on `faster-whisper`)
+- `prompt`: use prompt/context biasing (effective on prompt-capable backends such as `nemo-canary`)
+- `post`: run lightweight post-correction against hotwords/replacements
+- `hybrid`: apply all supported strategies
+
+Examples:
+
+```bash
+# Use prompt biasing for Canary with your hotwords list
+dictate --stt-backend nemo-canary --lexicon-mode prompt
+
+# Hybrid mode combines native/prompt/post where available
+dictate --lexicon-mode hybrid
+
+# Add explicit post-correction replacements
+dictate --add-lexicon-replacement kinneri=canary
+dictate --list-lexicon-replacements
+```
+
 ## How It Works
 
 **Hold Right Ctrl** to record, **release** to transcribe and type into the focused window.
@@ -168,7 +193,7 @@ CLI `--hotwords` and saved hotwords are merged at startup.
 In tray mode, a microphone icon appears in the system tray with a right-click menu:
 
 - **Dictation active** — checkbox to pause/resume listening for the hotkey. The icon switches to a muted microphone when paused.
-- **Speech Model** — switch backend/model live. Successful changes are saved for future startups.
+- **Speech Model** — switch backend/model live. For unprepared `nemo-canary` choices, Dictate first runs a subprocess preparation step, then activates on success.
 - **Runtime Profile** — switch device/compute profile live (for example `cuda/int8`, `cuda/float16`, `cpu/int8`).
 - If switching fails, Dictate keeps the previous model active and shows an error dialog.
 - **Quit** — stops the daemon.
@@ -191,6 +216,8 @@ Runtime profile presets currently shipped in tray:
   - `stt_model`
   - `stt_device`
   - `stt_compute_type`
+  - `lexicon_mode` (optional)
+  - `lexicon_replacements` (optional)
 - Preflight now checks STT backend readiness (dependency imports + CUDA visibility) before model load.
 - Startup stderr is mirrored to logs:
   - latest run: `~/.local/share/dictate/logs/latest.log`
