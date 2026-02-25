@@ -11,6 +11,7 @@ from pynput import keyboard
 
 from dictate.audio import AudioCaptureError, SoundDeviceRecorder
 from dictate.engine import DictationEngine, TranscriptionResult
+from dictate.history import HistoryStore
 from dictate.lexicon import LexiconMode
 from dictate.outputs import TextOutput
 from dictate.stt import SpeechToText
@@ -28,10 +29,12 @@ class Daemon:
         hotwords: str | None = None,
         lexicon_mode: LexiconMode = "native",
         lexicon_replacements: dict[str, str] | None = None,
+        history_store: HistoryStore | None = None,
     ):
         self.active = True
         self.language = language
         self.output = output
+        self.history_store = history_store or HistoryStore()
         self.engine = DictationEngine(
             stt=stt,
             sample_rate=SAMPLE_RATE,
@@ -199,6 +202,11 @@ class Daemon:
             message = result.error or "unknown transcription error"
             print(f"\r  Transcription failed: {message}", file=sys.stderr)
             return
+
+        try:
+            self.history_store.append(result.text)
+        except Exception as exc:  # noqa: BLE001
+            print(f"\r  History save failed: {exc}", file=sys.stderr)
 
         try:
             self.output.send(result.text)

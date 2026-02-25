@@ -116,6 +116,10 @@ class TrayIcon:
         hotwords_item.connect("activate", self._on_manage_hotwords)
         menu.append(hotwords_item)
 
+        history_item = Gtk.MenuItem(label="Recent History...")
+        history_item.connect("activate", self._on_recent_history)
+        menu.append(history_item)
+
         menu.append(Gtk.SeparatorMenuItem())
 
         quit_item = Gtk.MenuItem(label="Quit")
@@ -202,6 +206,13 @@ class TrayIcon:
 
         # Live-reload: update engine hotwords from saved config
         self.daemon.set_hotwords(load_config().hotwords_str)
+
+    def _on_recent_history(self, _item):
+        from dictate.history_dialog import RecentHistoryDialog
+
+        dialog = RecentHistoryDialog(store=self.daemon.history_store)
+        dialog.run()
+        dialog.destroy()
 
     def _on_model_selected(self, item, backend: str, model: str) -> None:
         if self._syncing_model_menu:
