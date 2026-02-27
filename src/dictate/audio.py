@@ -39,6 +39,9 @@ class SoundDeviceRecorder:
             import sounddevice as sd
 
             self._stream = sd.InputStream(
+                # NOTE: No explicit `device=` means we follow the OS default input device
+                # (e.g. the PulseAudio/PipeWire default source on Linux). Future improvement:
+                # add a config/CLI option to pin a specific input device by index/name.
                 samplerate=self.sample_rate,
                 channels=1,
                 dtype="float32",
