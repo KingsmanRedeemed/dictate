@@ -15,6 +15,7 @@ class RepoDefaultConfigTests(unittest.TestCase):
         self.assertEqual(data["stt_model"], "turbo")
         self.assertEqual(data["stt_device"], "auto")
         self.assertEqual(data["stt_compute_type"], "int8")
+        self.assertEqual(data["push_to_talk_combo"], "ctrl_r")
         self.assertIsInstance(data["hotwords"], list)
         self.assertGreater(len(data["hotwords"]), 0)
         self.assertTrue(all(isinstance(word, str) and word.strip() for word in data["hotwords"]))

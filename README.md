@@ -12,6 +12,7 @@ This is intended to be an always-available desktop utility (tray icon) and a CLI
 - Capability-aware backend contract (`hotwords`, prompt bias, language hint handling) so unsupported options fail soft with clear warnings.
 - Backend-agnostic lexical adaptation modes: `native`, `prompt`, `post`, `hybrid`.
 - Push-to-talk daemon: `Right Ctrl` hold/release to record/transcribe/type.
+- Configurable push-to-talk key (`ctrl_r` default, `ctrl_l` supported for Wayland/laptop compatibility).
 - System tray toggle (pause/resume dictation).
 - Tray menu STT switcher (change backend/model without restart).
 - Tray runtime profile switcher (device/compute tuning without restart).
@@ -216,6 +217,12 @@ dictate --list-lexicon-replacements
 
 **Hold Right Ctrl** to record, **release** to transcribe and type into the focused window.
 
+If your desktop or keyboard reports `Right Ctrl` unreliably, set this in `~/.config/dictate/config.yaml`:
+
+```yaml
+push_to_talk_combo: ctrl_l
+```
+
 In tray mode, a microphone icon appears in the system tray with a right-click menu:
 
 - **Dictation active** — checkbox to pause/resume listening for the hotkey. The icon switches to a muted microphone when paused.
@@ -244,6 +251,7 @@ Runtime profile presets currently shipped in tray:
   - `stt_device`
   - `stt_compute_type`
 - Additional recognized config keys:
+  - `push_to_talk_combo` (examples: `ctrl_r`, `ctrl_l`, `ctrl+space`, `ctrl+shift`)
   - `lexicon_mode` (optional startup default; set manually in config)
   - `lexicon_replacements` (managed by CLI replacement commands)
 - Preflight now checks STT backend readiness (dependency imports + CUDA visibility) before model load.
@@ -254,7 +262,7 @@ Runtime profile presets currently shipped in tray:
 - On Wayland:
   - `xdotool` generally will not work for native Wayland apps.
   - Prefer `wtype` (simple) or `ydotool` (may require extra setup/permissions).
-  - Global hotkeys can be restricted on some Wayland compositors; if the hotkey does not fire, use `--once` or run an X11 session.
+  - Global hotkeys can be restricted on some Wayland compositors; if your combo does not fire, try `push_to_talk_combo: ctrl_l` or `push_to_talk_combo: ctrl+space`, use `--once`, or run an X11 session.
 - If preflight reports missing tools, install them via your distro package manager (e.g. `xdotool`, `xclip`, `wtype`).
 - Dictation uses the system default microphone input device. If your default input is misconfigured, fix it in your OS audio settings.
 - If NeMo backend fails to load, install optional deps with `uv pip install -e ".[nemo]"`.

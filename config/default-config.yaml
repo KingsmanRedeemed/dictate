@@ -27,6 +27,7 @@ hotwords:
   - root
   - Xero
   - Pixel Forge
+push_to_talk_combo: ctrl_r
 stt_backend: faster-whisper
 stt_compute_type: int8
 stt_device: auto

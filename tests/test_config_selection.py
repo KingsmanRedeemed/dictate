@@ -9,6 +9,7 @@ from dictate.config import (
     add_lexicon_replacements,
     load_config,
     remove_lexicon_replacements,
+    set_push_to_talk_combo,
     set_stt_runtime_profile,
     set_stt_selection,
 )
@@ -33,10 +34,30 @@ class ConfigSelectionTests(unittest.TestCase):
 
             config = load_config(path=config_path)
             self.assertEqual(config.hotwords, ["OpenBao"])
+            self.assertIsNone(config.push_to_talk_combo)
+            self.assertIsNone(config.push_to_talk_key)
             self.assertEqual(config.stt_backend, "nemo-canary")
             self.assertEqual(config.stt_model, "nvidia/canary-1b-flash")
             self.assertEqual(config.stt_device, "cuda")
             self.assertEqual(config.stt_compute_type, "float16")
+
+    def test_load_config_reads_push_to_talk_combo(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.yaml"
+            config_path.write_text("push_to_talk_combo: ctrl+space\n")
+
+            config = load_config(path=config_path)
+            self.assertEqual(config.push_to_talk_combo, "ctrl+space")
+
+    def test_set_push_to_talk_combo_replaces_legacy_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.yaml"
+            config_path.write_text("push_to_talk_key: ctrl_l\n")
+
+            set_push_to_talk_combo("ctrl+space", path=config_path)
+            config = load_config(path=config_path)
+            self.assertEqual(config.push_to_talk_combo, "ctrl+space")
+            self.assertIsNone(config.push_to_talk_key)
 
     def test_lexicon_replacements_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

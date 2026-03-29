@@ -37,6 +37,7 @@ from dictate.config import (
 )
 from dictate.doctor import run_doctor
 from dictate.engine import DictationEngine
+from dictate.hotkey import DEFAULT_PUSH_TO_TALK_COMBO, HotkeyParseError, format_hotkey_combo, normalize_push_to_talk_combo
 from dictate.lexicon import LEXICON_MODES, LexiconMode, normalize_lexicon_mode
 from dictate.model_prepare import run_prepare_model
 from dictate.outputs import (
@@ -121,6 +122,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Lexical adaptation mode: native, prompt, post, hybrid (default: native)",
     )
     parser.add_argument(
+        "--push-to-talk-combo",
+        default=DEFAULT_PUSH_TO_TALK_COMBO,
+        help="Push-to-talk combo for daemon/tray mode (examples: ctrl_r, ctrl_l, ctrl+space)",
+    )
+    parser.add_argument(
+        "--push-to-talk-key",
+        default=None,
+        help="Deprecated alias for single-key push-to-talk selection",
+    )
+    parser.add_argument(
         "--hotwords",
         default=None,
         help="Comma-separated words to boost recognition (e.g. 'OpenBao,Vikunja')",
@@ -191,11 +202,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         cli_args=cli_args,
         config=config,
     )
+    push_to_talk_combo = _resolve_startup_push_to_talk_combo(
+        args=args,
+        cli_args=cli_args,
+        config=config,
+    )
 
     _run_preflight_or_exit(
         require_typing=not args.once,
         require_clipboard=args.once and args.copy,
         typing_backend=args.type_backend,
+        push_to_talk_combo=push_to_talk_combo,
         stt_backend=stt_backend,
         stt_model=model_name,
         stt_device=stt_device,
@@ -233,6 +250,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             hotwords=hotwords,
             lexicon_mode=lexicon_mode,
             lexicon_replacements=config.lexicon_replacements,
+            push_to_talk_combo=push_to_talk_combo,
         )
         return 0
     _run_tray(
@@ -242,6 +260,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         hotwords=hotwords,
         lexicon_mode=lexicon_mode,
         lexicon_replacements=config.lexicon_replacements,
+        push_to_talk_combo=push_to_talk_combo,
     )
     return 0
 
@@ -334,11 +353,62 @@ def _flag_in_args(cli_args: Sequence[str], name: str) -> bool:
     return any(arg.startswith(f"{name}=") for arg in cli_args)
 
 
+def _resolve_startup_push_to_talk_combo(
+    *,
+    args,  # noqa: ANN001
+    cli_args: Sequence[str],
+    config: Config,
+) -> str:
+    combo_flag = _flag_in_args(cli_args, "--push-to-talk-combo")
+    legacy_key_flag = _flag_in_args(cli_args, "--push-to-talk-key")
+
+    if combo_flag:
+        try:
+            combo = normalize_push_to_talk_combo(args.push_to_talk_combo)
+        except HotkeyParseError as exc:
+            print(f"Invalid --push-to-talk-combo value: {exc}", file=sys.stderr)
+            raise SystemExit(2) from exc
+        print(f"Using CLI push-to-talk combo: {format_hotkey_combo(combo)}", file=sys.stderr)
+        return combo
+    if legacy_key_flag and args.push_to_talk_key:
+        try:
+            combo = normalize_push_to_talk_combo(args.push_to_talk_key)
+        except HotkeyParseError as exc:
+            print(f"Invalid --push-to-talk-key value: {exc}", file=sys.stderr)
+            raise SystemExit(2) from exc
+        print(f"Using CLI push-to-talk combo: {format_hotkey_combo(combo)}", file=sys.stderr)
+        return combo
+    if config.push_to_talk_combo:
+        try:
+            combo = normalize_push_to_talk_combo(config.push_to_talk_combo)
+        except HotkeyParseError:
+            print(
+                f"Ignoring invalid saved push-to-talk combo '{config.push_to_talk_combo}' in config.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"Using saved push-to-talk combo: {format_hotkey_combo(combo)}", file=sys.stderr)
+            return combo
+    if config.push_to_talk_key:
+        try:
+            combo = normalize_push_to_talk_combo(config.push_to_talk_key)
+        except HotkeyParseError:
+            print(
+                f"Ignoring invalid saved push-to-talk key '{config.push_to_talk_key}' in config.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"Using saved push-to-talk combo: {format_hotkey_combo(combo)}", file=sys.stderr)
+            return combo
+    return normalize_push_to_talk_combo(DEFAULT_PUSH_TO_TALK_COMBO)
+
+
 def _run_preflight_or_exit(
     *,
     require_typing: bool,
     require_clipboard: bool,
     typing_backend: str,
+    push_to_talk_combo: str,
     stt_backend: SttBackend,
     stt_model: str,
     stt_device: ComputeDevice,
@@ -349,6 +419,7 @@ def _run_preflight_or_exit(
         require_typing=require_typing,
         require_clipboard=require_clipboard,
         typing_backend=typing_backend,
+        push_to_talk_combo=push_to_talk_combo,
         stt_backend=stt_backend,
         stt_model=stt_model,
         stt_device=stt_device,
@@ -609,6 +680,7 @@ def _run_headless(
     hotwords: str | None,
     lexicon_mode: LexiconMode,
     lexicon_replacements: dict[str, str] | None,
+    push_to_talk_combo: str,
 ) -> None:
     from dictate.daemon import Daemon
 
@@ -620,6 +692,7 @@ def _run_headless(
         hotwords=hotwords,
         lexicon_mode=lexicon_mode,
         lexicon_replacements=lexicon_replacements,
+        push_to_talk_combo=push_to_talk_combo,
     ).run()
 
 
@@ -631,6 +704,7 @@ def _run_tray(
     hotwords: str | None,
     lexicon_mode: LexiconMode,
     lexicon_replacements: dict[str, str] | None,
+    push_to_talk_combo: str,
 ) -> None:
     from dictate.daemon import Daemon
     from dictate.tray import TrayIcon
@@ -644,6 +718,7 @@ def _run_tray(
             hotwords=hotwords,
             lexicon_mode=lexicon_mode,
             lexicon_replacements=lexicon_replacements,
+            push_to_talk_combo=push_to_talk_combo,
         )
     ).run()
 

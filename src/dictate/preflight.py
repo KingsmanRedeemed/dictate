@@ -11,6 +11,7 @@ from dictate.outputs import (
     detect_session_type,
     resolve_typing_backend,
 )
+from dictate.hotkey import format_hotkey_combo, normalize_push_to_talk_combo
 from dictate.stt import ComputeDevice, SttBackend, check_backend_readiness
 
 
@@ -30,6 +31,7 @@ def run_preflight(
     require_typing: bool,
     require_clipboard: bool,
     typing_backend: str = "auto",
+    push_to_talk_combo: str = "ctrl_r",
     stt_backend: SttBackend = "faster-whisper",
     stt_model: str | None = None,
     stt_device: ComputeDevice = "auto",
@@ -43,7 +45,12 @@ def run_preflight(
         stt_model=stt_model,
         stt_device=stt_device,
     )
-    _check_typing(report, require_typing=require_typing, typing_backend=typing_backend)
+    _check_typing(
+        report,
+        require_typing=require_typing,
+        typing_backend=typing_backend,
+        push_to_talk_combo=push_to_talk_combo,
+    )
     _check_clipboard(report, require_clipboard=require_clipboard)
     return report
 
@@ -108,12 +115,19 @@ def _check_stt_backend(
     report.notes.extend(backend_report.notes)
 
 
-def _check_typing(report: PreflightReport, *, require_typing: bool, typing_backend: str) -> None:
+def _check_typing(
+    report: PreflightReport,
+    *,
+    require_typing: bool,
+    typing_backend: str,
+    push_to_talk_combo: str,
+) -> None:
     if not require_typing:
         return
 
     session = detect_session_type()
     report.notes.append(f"Session type: {session}")
+    report.notes.append(f"Push-to-talk combo: {format_hotkey_combo(normalize_push_to_talk_combo(push_to_talk_combo))}")
 
     try:
         backend = resolve_typing_backend(preferred=typing_backend)
@@ -122,6 +136,11 @@ def _check_typing(report: PreflightReport, *, require_typing: bool, typing_backe
         return
 
     report.notes.append(f"Typing backend: {backend.name}")
+    if session == "wayland":
+        report.warnings.append(
+            "Global hotkey capture on Wayland depends on compositor/input behavior; "
+            "if your combo does not fire, try a simpler combo such as ctrl_l or ctrl+space, or use X11."
+        )
 
 
 def _check_clipboard(report: PreflightReport, *, require_clipboard: bool) -> None:

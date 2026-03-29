@@ -1,4 +1,4 @@
-"""Push-to-talk daemon. Listens for Right Ctrl and runs shared dictation pipeline."""
+"""Push-to-talk daemon. Listens for a configured combo and runs shared dictation pipeline."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from pynput import keyboard
 from dictate.audio import AudioCaptureError, SoundDeviceRecorder
 from dictate.engine import DictationEngine, TranscriptionResult
 from dictate.history import HistoryStore
+from dictate.hotkey import combo_is_active, format_hotkey_combo, key_event_names, normalize_push_to_talk_combo
 from dictate.lexicon import LexiconMode
 from dictate.outputs import TextOutput
 from dictate.stt import SpeechToText
@@ -30,11 +31,13 @@ class Daemon:
         lexicon_mode: LexiconMode = "native",
         lexicon_replacements: dict[str, str] | None = None,
         history_store: HistoryStore | None = None,
+        push_to_talk_combo: str = "ctrl_r",
     ):
         self.active = True
         self.language = language
         self.output = output
         self.history_store = history_store or HistoryStore()
+        self.push_to_talk_combo = normalize_push_to_talk_combo(push_to_talk_combo)
         self.engine = DictationEngine(
             stt=stt,
             sample_rate=SAMPLE_RATE,
@@ -49,6 +52,8 @@ class Daemon:
         self._listener: keyboard.Listener | None = None
         self._worker: threading.Thread | None = None
         self._audio_queue: queue.Queue[np.ndarray | None] = queue.Queue()
+        self._push_to_talk_pressed = False
+        self._pressed_key_names: set[str] = set()
 
     def pause(self) -> None:
         """Stop listening for hotkey."""
@@ -64,6 +69,14 @@ class Daemon:
         """Update hotwords without restarting daemon."""
         with self._engine_lock:
             self.engine.set_hotwords(hotwords)
+
+    def set_push_to_talk_combo(self, combo: str) -> None:
+        """Update push-to-talk combo without restarting daemon."""
+        self.push_to_talk_combo = normalize_push_to_talk_combo(combo)
+        self._pressed_key_names.clear()
+        self._push_to_talk_pressed = False
+        if self.recorder.is_recording:
+            self._finalize_recording()
 
     def switch_speech_to_text(self, stt: SpeechToText, *, hotwords: str | None = None) -> None:
         """Swap STT backend/model at runtime."""
@@ -135,11 +148,20 @@ class Daemon:
             self._audio_queue.put(audio)
 
     def _on_press(self, key) -> None:  # noqa: ANN001
-        if key == keyboard.Key.ctrl_r and self.active:
+        self._pressed_key_names.update(key_event_names(key))
+        if not self.active or self._push_to_talk_pressed:
+            return
+        if combo_is_active(self._pressed_key_names, self.push_to_talk_combo):
+            self._push_to_talk_pressed = True
             self._start_recording()
 
     def _on_release(self, key) -> None:  # noqa: ANN001
-        if key == keyboard.Key.ctrl_r:
+        self._pressed_key_names.difference_update(key_event_names(key))
+        if self._push_to_talk_pressed and not combo_is_active(
+            self._pressed_key_names,
+            self.push_to_talk_combo,
+        ):
+            self._push_to_talk_pressed = False
             self._finalize_recording()
 
     def start(self) -> None:
@@ -156,7 +178,13 @@ class Daemon:
     def run(self) -> None:
         """Start daemon and block (for headless mode)."""
         print("dictate daemon running", file=sys.stderr)
-        print(f"  Hold Right Ctrl to dictate, release to transcribe ({self.output.name})", file=sys.stderr)
+        print(
+            (
+                f"  Hold {format_hotkey_combo(self.push_to_talk_combo)} to dictate, "
+                f"release to transcribe ({self.output.name})"
+            ),
+            file=sys.stderr,
+        )
         print("  Ctrl+C to quit\n", file=sys.stderr)
 
         self.start()

@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Typing backend to validate",
     )
     parser.add_argument(
+        "--push-to-talk-combo",
+        default="ctrl_r",
+        help="Push-to-talk combo to validate",
+    )
+    parser.add_argument(
         "--quick",
         action="store_true",
         help="Skip model load check (faster; suitable for install-time verification)",
@@ -69,6 +74,7 @@ def run_doctor(argv: Sequence[str] | None = None) -> int:
         require_typing=True,
         require_clipboard=False,
         typing_backend=args.type_backend,
+        push_to_talk_combo=args.push_to_talk_combo,
         stt_backend=args.stt_backend,
         stt_model=model_name,
         stt_device=args.device,

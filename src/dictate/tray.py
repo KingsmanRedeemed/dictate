@@ -15,8 +15,9 @@ gi.require_version("AyatanaAppIndicator3", "0.1")
 
 from gi.repository import AyatanaAppIndicator3, GLib, Gtk
 
-from dictate.config import load_config, set_stt_runtime_profile, set_stt_selection
+from dictate.config import load_config, set_push_to_talk_combo, set_stt_runtime_profile, set_stt_selection
 from dictate.daemon import Daemon
+from dictate.hotkey import format_hotkey_combo
 from dictate.model_state import (
     get_model_error,
     is_model_prepared,
@@ -50,6 +51,7 @@ RUNTIME_PROFILES: tuple[tuple[str, str, str], ...] = (
 class TrayIcon:
     def __init__(self, daemon: Daemon):
         self.daemon = daemon
+        self._quitting = False
         self._switch_in_progress = False
         self._switch_background_mode = False
         self._switch_counter = 0
@@ -115,6 +117,10 @@ class TrayIcon:
         hotwords_item = Gtk.MenuItem(label="Manage Hotwords...")
         hotwords_item.connect("activate", self._on_manage_hotwords)
         menu.append(hotwords_item)
+
+        push_to_talk_item = Gtk.MenuItem(label="Push-to-Talk...")
+        push_to_talk_item.connect("activate", self._on_push_to_talk)
+        menu.append(push_to_talk_item)
 
         history_item = Gtk.MenuItem(label="Recent History...")
         history_item.connect("activate", self._on_recent_history)
@@ -212,6 +218,19 @@ class TrayIcon:
 
         dialog = RecentHistoryDialog(store=self.daemon.history_store)
         dialog.run()
+        dialog.destroy()
+
+    def _on_push_to_talk(self, _item):
+        from dictate.push_to_talk_dialog import PushToTalkDialog
+
+        dialog = PushToTalkDialog(current_combo=self.daemon.push_to_talk_combo)
+        response = dialog.run()
+        if response == Gtk.ResponseType.OK:
+            set_push_to_talk_combo(dialog.result_combo)
+            self.daemon.set_push_to_talk_combo(dialog.result_combo)
+            self._set_switch_status(
+                f"Push-to-talk updated: {format_hotkey_combo(dialog.result_combo)}"
+            )
         dialog.destroy()
 
     def _on_model_selected(self, item, backend: str, model: str) -> None:
@@ -944,8 +963,25 @@ class TrayIcon:
             self._syncing_profile_menu = False
 
     def _on_quit(self, _item):
-        self.daemon.shutdown()
-        Gtk.main_quit()
+        if self._quitting:
+            return
+        self._quitting = True
+
+        try:
+            self.indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.PASSIVE)
+            self.indicator.set_menu(None)
+        except Exception:  # noqa: BLE001
+            pass
+
+        GLib.idle_add(Gtk.main_quit)
+
+        def shutdown_background() -> None:
+            try:
+                self.daemon.shutdown()
+            except Exception as exc:  # noqa: BLE001
+                print(f"Tray shutdown error: {exc}", file=sys.stderr)
+
+        threading.Thread(target=shutdown_background, daemon=True).start()
 
     def run(self):
         """Start daemon threads, then run GTK main loop (blocks)."""

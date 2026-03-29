@@ -14,6 +14,13 @@ DEFAULT_CONFIG_SOURCE="$SCRIPT_DIR/config/default-config.yaml"
 VERIFY=1
 PREPARE_TURBO=1
 SEED_DEFAULT_CONFIG=1
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
+# Prefer the distro Python so --system-site-packages can see modules such as
+# python3-gi from /usr/lib/python3/dist-packages.
+if [ -x /usr/bin/python3 ]; then
+  PYTHON_BIN="/usr/bin/python3"
+fi
 
 usage() {
   cat <<EOF
@@ -49,7 +56,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 echo "Creating venv at $INSTALL_DIR ..."
-uv venv "$INSTALL_DIR/venv" --python python3 --system-site-packages --quiet
+uv venv "$INSTALL_DIR/venv" --python "$PYTHON_BIN" --system-site-packages --quiet
 
 echo "Installing dictate from $SCRIPT_DIR ..."
 uv pip install "$SCRIPT_DIR" --python "$INSTALL_DIR/venv/bin/python" --quiet

@@ -8,6 +8,8 @@ from pathlib import Path
 
 import yaml
 
+from dictate.hotkey import normalize_push_to_talk_combo
+
 logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path.home() / ".config" / "dictate" / "config.yaml"
@@ -18,6 +20,8 @@ class Config:
     hotwords: list[str] = field(default_factory=list)
     lexicon_mode: str | None = None
     lexicon_replacements: dict[str, str] = field(default_factory=dict)
+    push_to_talk_combo: str | None = None
+    push_to_talk_key: str | None = None
     stt_backend: str | None = None
     stt_model: str | None = None
     stt_device: str | None = None
@@ -50,6 +54,14 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
     if not isinstance(lexicon_mode, str):
         lexicon_mode = None
 
+    push_to_talk_combo = data.get("push_to_talk_combo")
+    if not isinstance(push_to_talk_combo, str):
+        push_to_talk_combo = None
+
+    push_to_talk_key = data.get("push_to_talk_key")
+    if not isinstance(push_to_talk_key, str):
+        push_to_talk_key = None
+
     lexicon_replacements_raw = data.get("lexicon_replacements", {})
     lexicon_replacements: dict[str, str] = {}
     if isinstance(lexicon_replacements_raw, dict):
@@ -77,6 +89,8 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         hotwords=hotwords,
         lexicon_mode=lexicon_mode,
         lexicon_replacements=lexicon_replacements,
+        push_to_talk_combo=push_to_talk_combo,
+        push_to_talk_key=push_to_talk_key,
         stt_backend=stt_backend,
         stt_model=stt_model,
         stt_device=stt_device,
@@ -141,6 +155,14 @@ def set_stt_runtime_profile(device: str, compute_type: str, path: Path = CONFIG_
     data = _load_raw(path)
     data["stt_device"] = device
     data["stt_compute_type"] = compute_type
+    _save_raw(data, path)
+
+
+def set_push_to_talk_combo(combo: str, path: Path = CONFIG_PATH) -> None:
+    """Persist push-to-talk combo and clear legacy single-key field."""
+    data = _load_raw(path)
+    data["push_to_talk_combo"] = normalize_push_to_talk_combo(combo)
+    data.pop("push_to_talk_key", None)
     _save_raw(data, path)
 
 

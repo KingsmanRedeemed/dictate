@@ -119,6 +119,45 @@ class MainSttSelectionTests(unittest.TestCase):
 
         self.assertEqual(lexicon_mode, "post")
 
+    def test_saved_push_to_talk_combo_used_when_cli_does_not_override(self) -> None:
+        parser = main_module.build_parser()
+        args = parser.parse_args([])
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            hotkey = main_module._resolve_startup_push_to_talk_combo(
+                args=args,
+                cli_args=[],
+                config=Config(push_to_talk_combo="ctrl+space"),
+            )
+
+        self.assertEqual(hotkey, "ctrl+space")
+
+    def test_legacy_saved_push_to_talk_key_is_still_honored(self) -> None:
+        parser = main_module.build_parser()
+        args = parser.parse_args([])
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            hotkey = main_module._resolve_startup_push_to_talk_combo(
+                args=args,
+                cli_args=[],
+                config=Config(push_to_talk_key="ctrl_l"),
+            )
+
+        self.assertEqual(hotkey, "ctrl_l")
+
+    def test_cli_push_to_talk_combo_overrides_saved_value(self) -> None:
+        parser = main_module.build_parser()
+        args = parser.parse_args(["--push-to-talk-combo", "ctrl+space"])
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            hotkey = main_module._resolve_startup_push_to_talk_combo(
+                args=args,
+                cli_args=["--push-to-talk-combo", "ctrl+space"],
+                config=Config(push_to_talk_combo="ctrl_l"),
+            )
+
+        self.assertEqual(hotkey, "ctrl+space")
+
 
 if __name__ == "__main__":
     unittest.main()
