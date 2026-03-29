@@ -34,16 +34,24 @@ This is intended to be an always-available desktop utility (tray icon) and a CLI
 
 ## Install
 
-The repo ships with an installer script that installs into a standalone venv at `~/.local/share/dictate`, links `~/.local/bin/dictate`, and creates a desktop entry.
+Ubuntu/Debian install with system packages, seeded default hotwords config, and prepared `faster-whisper/turbo`:
+
+```bash
+./install-ubuntu.sh
+```
+
+Generic repo install (assumes OS packages and `uv` are already present):
 
 ```bash
 ./install.sh
 ```
 
-Installer verification can be skipped if needed:
+`install.sh` seeds `~/.config/dictate/config.yaml` from [`config/default-config.yaml`](config/default-config.yaml) on first install and prepares the `faster-whisper/turbo` model by default. Existing user config is left untouched.
+
+Installer verification/model preparation can be skipped if needed:
 
 ```bash
-./install.sh --no-verify
+./install.sh --no-verify --no-prepare-turbo
 ```
 
 Optional: install NVIDIA NeMo backend dependencies in your active environment:
@@ -88,7 +96,7 @@ dictate doctor --check-model-load
 Select model/device/compute-type/language:
 
 ```bash
-# default faster-whisper model is "base" (quickest cold-start, reliable offline if cached)
+# code-level faster-whisper fallback is "base"; installer-seeded config defaults to "turbo"
 dictate --stt-backend faster-whisper --model large-v3-turbo
 dictate --stt-backend nemo-canary --model nvidia/canary-1b-flash
 dictate --device cpu
@@ -166,7 +174,7 @@ dictate --remove-hotword Vikunja
 dictate --list-hotwords
 ```
 
-Hotwords are saved to `~/.config/dictate/config.yaml`.
+Hotwords are saved to `~/.config/dictate/config.yaml`. Fresh installs created through the repo installer seed this file from [`config/default-config.yaml`](config/default-config.yaml).
 
 You can also pass one-off hotwords without saving them:
 

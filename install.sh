@@ -8,17 +8,45 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="$HOME/.local/share/dictate"
 BIN_DIR="$HOME/.local/bin"
 DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dictate"
+CONFIG_PATH="$CONFIG_DIR/config.yaml"
+DEFAULT_CONFIG_SOURCE="$SCRIPT_DIR/config/default-config.yaml"
 VERIFY=1
+PREPARE_TURBO=1
+SEED_DEFAULT_CONFIG=1
 
-if [ "${1:-}" = "--no-verify" ]; then
-  VERIFY=0
+usage() {
+  cat <<EOF
+Usage: $0 [--no-verify] [--no-prepare-turbo] [--no-seed-default-config]
+
+Installs dictate into ~/.local/share/dictate, links ~/.local/bin/dictate,
+seeds the default config on first install, and prepares the faster-whisper
+turbo model unless disabled.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --no-verify)
+      VERIFY=0
+      ;;
+    --no-prepare-turbo)
+      PREPARE_TURBO=0
+      ;;
+    --no-seed-default-config)
+      SEED_DEFAULT_CONFIG=0
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
   shift
-fi
-
-if [ "$#" -ne 0 ]; then
-  echo "Usage: $0 [--no-verify]"
-  exit 1
-fi
+done
 
 echo "Creating venv at $INSTALL_DIR ..."
 uv venv "$INSTALL_DIR/venv" --python python3 --system-site-packages --quiet
@@ -45,34 +73,72 @@ EOF
 
 update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
 
+if [ "$SEED_DEFAULT_CONFIG" -eq 1 ]; then
+  if [ ! -f "$CONFIG_PATH" ]; then
+    if [ ! -f "$DEFAULT_CONFIG_SOURCE" ]; then
+      echo "Default config template not found: $DEFAULT_CONFIG_SOURCE"
+      exit 1
+    fi
+    echo "Seeding default config at $CONFIG_PATH ..."
+    mkdir -p "$CONFIG_DIR"
+    install -m 600 "$DEFAULT_CONFIG_SOURCE" "$CONFIG_PATH"
+  else
+    echo "Existing config found at $CONFIG_PATH; leaving it unchanged."
+  fi
+fi
+
+DICTATE_BIN="$INSTALL_DIR/venv/bin/dictate"
+
+run_logged_check() {
+  local label="$1"
+  local log_path="$2"
+  local timeout_seconds="$3"
+  shift 3
+  echo "Running: $label ..."
+  if command -v timeout >/dev/null 2>&1; then
+    if ! timeout "${timeout_seconds}s" "$@" >"$log_path" 2>&1; then
+      echo "Command failed: $label"
+      echo "See: $log_path"
+      tail -n 120 "$log_path" || true
+      exit 1
+    fi
+  else
+    if ! "$@" >"$log_path" 2>&1; then
+      echo "Command failed: $label"
+      echo "See: $log_path"
+      tail -n 120 "$log_path" || true
+      exit 1
+    fi
+  fi
+}
+
+if [ "$PREPARE_TURBO" -eq 1 ]; then
+  PREPARE_LOG="/tmp/dictate-install-prepare.log"
+  run_logged_check \
+    "dictate prepare-model --stt-backend faster-whisper --model turbo --device auto --compute-type int8" \
+    "$PREPARE_LOG" \
+    1800 \
+    "$DICTATE_BIN" \
+    prepare-model \
+    --stt-backend faster-whisper \
+    --model turbo \
+    --device auto \
+    --compute-type int8
+fi
+
 if [ "$VERIFY" -eq 1 ]; then
   VERIFY_LOG="/tmp/dictate-install-verify.log"
-  DICTATE_BIN="$INSTALL_DIR/venv/bin/dictate"
-
-  run_check() {
-    local label="$1"
-    shift
-    echo "Verifying: $label ..."
-    if command -v timeout >/dev/null 2>&1; then
-      if ! timeout 20s "$@" >"$VERIFY_LOG" 2>&1; then
-        echo "Verification failed: $label"
-        echo "See: $VERIFY_LOG"
-        tail -n 120 "$VERIFY_LOG" || true
-        exit 1
-      fi
-    else
-      if ! "$@" >"$VERIFY_LOG" 2>&1; then
-        echo "Verification failed: $label"
-        echo "See: $VERIFY_LOG"
-        tail -n 120 "$VERIFY_LOG" || true
-        exit 1
-      fi
-    fi
-  }
-
-  run_check "dictate --help" "$DICTATE_BIN" --help
-  run_check "dictate benchmark --help" "$DICTATE_BIN" benchmark --help
-  run_check "dictate doctor --quick" "$DICTATE_BIN" doctor --quick
+  run_logged_check "dictate --help" "$VERIFY_LOG" 20 "$DICTATE_BIN" --help
+  run_logged_check "dictate benchmark --help" "$VERIFY_LOG" 20 "$DICTATE_BIN" benchmark --help
+  run_logged_check \
+    "dictate doctor --quick --stt-backend faster-whisper --model turbo" \
+    "$VERIFY_LOG" \
+    20 \
+    "$DICTATE_BIN" \
+    doctor \
+    --quick \
+    --stt-backend faster-whisper \
+    --model turbo
 fi
 
 echo "Done. 'dictate' is now available on your PATH and in the app launcher."
