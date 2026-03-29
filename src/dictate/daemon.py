@@ -7,12 +7,16 @@ import sys
 import threading
 
 import numpy as np
-from pynput import keyboard
 
 from dictate.audio import AudioCaptureError, SoundDeviceRecorder
 from dictate.engine import DictationEngine, TranscriptionResult
 from dictate.history import HistoryStore
-from dictate.hotkey import combo_is_active, format_hotkey_combo, key_event_names, normalize_push_to_talk_combo
+from dictate.hotkey import format_hotkey_combo, normalize_push_to_talk_combo
+from dictate.hotkey_backend import (
+    HotkeyBackend,
+    HotkeyBackendUnavailableError,
+    create_hotkey_backend,
+)
 from dictate.lexicon import LexiconMode
 from dictate.outputs import TextOutput
 from dictate.stt import SpeechToText
@@ -49,11 +53,9 @@ class Daemon:
         self._engine_lock = threading.Lock()
 
         self._stop = threading.Event()
-        self._listener: keyboard.Listener | None = None
         self._worker: threading.Thread | None = None
         self._audio_queue: queue.Queue[np.ndarray | None] = queue.Queue()
-        self._push_to_talk_pressed = False
-        self._pressed_key_names: set[str] = set()
+        self._hotkey_backend: HotkeyBackend | None = None
 
     def pause(self) -> None:
         """Stop listening for hotkey."""
@@ -73,8 +75,11 @@ class Daemon:
     def set_push_to_talk_combo(self, combo: str) -> None:
         """Update push-to-talk combo without restarting daemon."""
         self.push_to_talk_combo = normalize_push_to_talk_combo(combo)
-        self._pressed_key_names.clear()
-        self._push_to_talk_pressed = False
+        if self._hotkey_backend is not None:
+            self._hotkey_backend.set_combo(self.push_to_talk_combo)
+        else:
+            self._ensure_worker_started()
+            self._start_hotkey_backend()
         if self.recorder.is_recording:
             self._finalize_recording()
 
@@ -114,8 +119,9 @@ class Daemon:
         if self.recorder.is_recording:
             self._finalize_recording()
 
-        if self._listener:
-            self._listener.stop()
+        if self._hotkey_backend is not None:
+            self._hotkey_backend.stop()
+            self._hotkey_backend = None
 
         with self._engine_lock:
             try:
@@ -147,33 +153,38 @@ class Daemon:
         if audio.size > 0:
             self._audio_queue.put(audio)
 
-    def _on_press(self, key) -> None:  # noqa: ANN001
-        self._pressed_key_names.update(key_event_names(key))
-        if not self.active or self._push_to_talk_pressed:
+    def _on_hotkey_press(self) -> None:
+        if not self.active or self.recorder.is_recording:
             return
-        if combo_is_active(self._pressed_key_names, self.push_to_talk_combo):
-            self._push_to_talk_pressed = True
-            self._start_recording()
+        self._start_recording()
 
-    def _on_release(self, key) -> None:  # noqa: ANN001
-        self._pressed_key_names.difference_update(key_event_names(key))
-        if self._push_to_talk_pressed and not combo_is_active(
-            self._pressed_key_names,
-            self.push_to_talk_combo,
-        ):
-            self._push_to_talk_pressed = False
+    def _on_hotkey_release(self) -> None:
+        if self.recorder.is_recording:
             self._finalize_recording()
 
     def start(self) -> None:
         """Start daemon threads (non-blocking). Returns immediately."""
-        self._listener = keyboard.Listener(
-            on_press=self._on_press,
-            on_release=self._on_release,
-        )
-        self._listener.start()
+        self._ensure_worker_started()
+        self._start_hotkey_backend()
 
+    def _ensure_worker_started(self) -> None:
+        if self._worker is not None and self._worker.is_alive():
+            return
         self._worker = threading.Thread(target=self._transcription_loop, daemon=True)
         self._worker.start()
+
+    def _start_hotkey_backend(self) -> None:
+        if self._hotkey_backend is None:
+            self._hotkey_backend = create_hotkey_backend(
+                combo=self.push_to_talk_combo,
+                on_press=self._on_hotkey_press,
+                on_release=self._on_hotkey_release,
+            )
+        try:
+            self._hotkey_backend.start()
+        except HotkeyBackendUnavailableError:
+            self._hotkey_backend = None
+            raise
 
     def run(self) -> None:
         """Start daemon and block (for headless mode)."""

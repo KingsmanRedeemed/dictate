@@ -5,6 +5,11 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 
+from dictate.hotkey_backend import (
+    HotkeyBackendUnavailableError,
+    detect_hotkey_backend,
+    portal_global_shortcuts_available,
+)
 from dictate.outputs import (
     BackendUnavailableError,
     command_exists,
@@ -136,11 +141,24 @@ def _check_typing(
         return
 
     report.notes.append(f"Typing backend: {backend.name}")
+    try:
+        hotkey_backend = detect_hotkey_backend()
+    except HotkeyBackendUnavailableError as exc:
+        report.errors.append(str(exc))
+        hotkey_backend = None
+    if hotkey_backend is not None:
+        report.notes.append(f"Hotkey backend: {hotkey_backend}")
     if session == "wayland":
-        report.warnings.append(
-            "Global hotkey capture on Wayland depends on compositor/input behavior; "
-            "if your combo does not fire, try a simpler combo such as ctrl_l or ctrl+space, or use X11."
-        )
+        if hotkey_backend == "portal":
+            report.notes.append("Wayland hotkeys will use the desktop portal GlobalShortcuts API.")
+        elif portal_global_shortcuts_available():
+            report.warnings.append(
+                "The desktop portal is available but not selected as the hotkey backend."
+            )
+        else:
+            report.warnings.append(
+                "Wayland desktop portal GlobalShortcuts is not available; global push-to-talk will not be reliable."
+            )
 
 
 def _check_clipboard(report: PreflightReport, *, require_clipboard: bool) -> None:

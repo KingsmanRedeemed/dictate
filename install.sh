@@ -24,13 +24,35 @@ fi
 
 usage() {
   cat <<EOF
-Usage: $0 [--no-verify] [--no-prepare-turbo] [--no-seed-default-config]
+Usage: $0 [--no-verify] [--no-prepare-turbo] [--no-seed-default-config] [--session-backend auto|x11|wayland]
 
 Installs dictate into ~/.local/share/dictate, links ~/.local/bin/dictate,
 seeds the default config on first install, and prepares the faster-whisper
 turbo model unless disabled.
 EOF
 }
+
+detect_session_backend() {
+  if [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
+    printf 'wayland\n'
+    return
+  fi
+  if [ -n "${DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = "x11" ]; then
+    printf 'x11\n'
+    return
+  fi
+  if [ -n "${XDG_SESSION_ID:-}" ] && command -v loginctl >/dev/null 2>&1; then
+    local detected
+    detected="$(loginctl show-session "$XDG_SESSION_ID" -p Type --value 2>/dev/null || true)"
+    if [ "$detected" = "wayland" ] || [ "$detected" = "x11" ]; then
+      printf '%s\n' "$detected"
+      return
+    fi
+  fi
+  printf 'unknown\n'
+}
+
+SESSION_BACKEND="auto"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -42,6 +64,13 @@ while [ "$#" -gt 0 ]; do
       ;;
     --no-seed-default-config)
       SEED_DEFAULT_CONFIG=0
+      ;;
+    --session-backend)
+      shift
+      SESSION_BACKEND="${1:-}"
+      ;;
+    --session-backend=*)
+      SESSION_BACKEND="${1#*=}"
       ;;
     -h|--help)
       usage
@@ -55,11 +84,26 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
+if [ "$SESSION_BACKEND" = "auto" ]; then
+  SESSION_BACKEND="$(detect_session_backend)"
+fi
+
+PIP_TARGET="$SCRIPT_DIR"
+if [ "$SESSION_BACKEND" = "x11" ]; then
+  PIP_TARGET="$SCRIPT_DIR[x11]"
+elif [ "$SESSION_BACKEND" = "wayland" ]; then
+  PIP_TARGET="$SCRIPT_DIR[wayland]"
+elif [ "$SESSION_BACKEND" = "unknown" ]; then
+  PIP_TARGET="$SCRIPT_DIR[x11,wayland]"
+fi
+
+echo "Detected install session backend: $SESSION_BACKEND"
+
 echo "Creating venv at $INSTALL_DIR ..."
 uv venv "$INSTALL_DIR/venv" --python "$PYTHON_BIN" --system-site-packages --quiet
 
-echo "Installing dictate from $SCRIPT_DIR ..."
-uv pip install "$SCRIPT_DIR" --python "$INSTALL_DIR/venv/bin/python" --quiet
+echo "Installing dictate from $PIP_TARGET ..."
+uv pip install "$PIP_TARGET" --python "$INSTALL_DIR/venv/bin/python" --quiet
 
 echo "Linking binary ..."
 mkdir -p "$BIN_DIR"
@@ -89,6 +133,9 @@ if [ "$SEED_DEFAULT_CONFIG" -eq 1 ]; then
     echo "Seeding default config at $CONFIG_PATH ..."
     mkdir -p "$CONFIG_DIR"
     install -m 600 "$DEFAULT_CONFIG_SOURCE" "$CONFIG_PATH"
+    if [ "$SESSION_BACKEND" = "wayland" ]; then
+      sed -i 's/^push_to_talk_combo: .*/push_to_talk_combo: ctrl+space/' "$CONFIG_PATH"
+    fi
   else
     echo "Existing config found at $CONFIG_PATH; leaving it unchanged."
   fi

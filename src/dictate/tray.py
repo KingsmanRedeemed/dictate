@@ -18,6 +18,11 @@ from gi.repository import AyatanaAppIndicator3, GLib, Gtk
 from dictate.config import load_config, set_push_to_talk_combo, set_stt_runtime_profile, set_stt_selection
 from dictate.daemon import Daemon
 from dictate.hotkey import format_hotkey_combo
+from dictate.hotkey_backend import (
+    detect_hotkey_backend,
+    HotkeyBackendUnavailableError,
+    request_portal_shortcut_authorization,
+)
 from dictate.model_state import (
     get_model_error,
     is_model_prepared,
@@ -139,9 +144,13 @@ class TrayIcon:
         submenu = Gtk.Menu()
         presets = list(MODEL_PRESETS)
         active_key = (self._active_backend, self._active_model)
-        if active_key not in {(backend, model) for backend, model, _label in MODEL_PRESETS}:
-            presets.insert(
-                0,
+
+        installed_models: list[tuple[str, str, str]] = []
+        installable_models: list[tuple[str, str, str]] = []
+
+        preset_keys = {(backend, model) for backend, model, _label in MODEL_PRESETS}
+        if active_key not in preset_keys:
+            installed_models.append(
                 (
                     self._active_backend,
                     self._active_model,
@@ -149,19 +158,76 @@ class TrayIcon:
                 ),
             )
 
-        radio_group: Gtk.RadioMenuItem | None = None
         for backend, model, label in presets:
-            if radio_group is None:
-                item = Gtk.RadioMenuItem.new_with_label(None, label)
-                radio_group = item
+            if (backend, model) == active_key or is_model_prepared(
+                backend=backend,
+                model=model,
+                device=self._stt_device,
+                compute_type=self._stt_compute_type,
+            ):
+                installed_models.append((backend, model, label))
             else:
-                item = Gtk.RadioMenuItem.new_with_label_from_widget(radio_group, label)
-            item.connect("toggled", self._on_model_selected, backend, model)
-            self._model_items[(backend, model)] = item
-            submenu.append(item)
+                installable_models.append((backend, model, label))
 
-        self._set_active_model_menu_item(self._active_backend, self._active_model)
+        if installed_models:
+            installed_header = Gtk.MenuItem(label="Installed Models")
+            installed_header.set_sensitive(False)
+            submenu.append(installed_header)
+
+            radio_group: Gtk.RadioMenuItem | None = None
+            for backend, model, label in installed_models:
+                if radio_group is None:
+                    item = Gtk.RadioMenuItem.new_with_label(None, label)
+                    radio_group = item
+                else:
+                    item = Gtk.RadioMenuItem.new_with_label_from_widget(radio_group, label)
+                item.connect("toggled", self._on_model_selected, backend, model)
+                self._model_items[(backend, model)] = item
+                submenu.append(item)
+
+        if installable_models:
+            if installed_models:
+                submenu.append(Gtk.SeparatorMenuItem())
+            installable_header = Gtk.MenuItem(label="Compatible Models")
+            installable_header.set_sensitive(False)
+            submenu.append(installable_header)
+            for backend, model, label in installable_models:
+                item = Gtk.MenuItem(label=f"{label} (download/switch)")
+                item.connect("activate", self._on_installable_model_selected, backend, model)
+                submenu.append(item)
+
+        self._set_active_model_menu_item(*active_key)
         return submenu
+
+    def _on_installable_model_selected(self, _item, backend: str, model: str) -> None:
+        if self._prepare_in_progress:
+            self._set_switch_status("Model preparation already in progress. Please wait.")
+            return
+        if self._switch_in_progress:
+            return
+        if (backend, model) == (self._active_backend, self._active_model):
+            return
+
+        if self._requires_preparation(
+            backend=backend,
+            model=model,
+            device=self._stt_device,
+            compute_type=self._stt_compute_type,
+        ):
+            self._start_prepare_for_switch(
+                backend=backend,
+                model=model,
+                device=self._stt_device,
+                compute_type=self._stt_compute_type,
+            )
+            return
+
+        self._start_switch(
+            backend=backend,
+            model=model,
+            device=self._stt_device,
+            compute_type=self._stt_compute_type,
+        )
 
     def _build_runtime_submenu(self) -> Gtk.Menu:
         submenu = Gtk.Menu()
@@ -226,11 +292,25 @@ class TrayIcon:
         dialog = PushToTalkDialog(current_combo=self.daemon.push_to_talk_combo)
         response = dialog.run()
         if response == Gtk.ResponseType.OK:
+            if detect_hotkey_backend() == "portal":
+                authorized, error = request_portal_shortcut_authorization(dialog.result_combo)
+                if not authorized:
+                    self._set_switch_status(
+                        f"Push-to-talk not authorized by GNOME: {error}"
+                    )
+                    dialog.destroy()
+                    return
             set_push_to_talk_combo(dialog.result_combo)
-            self.daemon.set_push_to_talk_combo(dialog.result_combo)
-            self._set_switch_status(
-                f"Push-to-talk updated: {format_hotkey_combo(dialog.result_combo)}"
-            )
+            try:
+                self.daemon.set_push_to_talk_combo(dialog.result_combo)
+            except HotkeyBackendUnavailableError as exc:
+                self._set_switch_status(
+                    f"Push-to-talk saved but not active yet: {exc}"
+                )
+            else:
+                self._set_switch_status(
+                    f"Push-to-talk updated: {format_hotkey_combo(dialog.result_combo)}"
+                )
         dialog.destroy()
 
     def _on_model_selected(self, item, backend: str, model: str) -> None:
@@ -985,13 +1065,22 @@ class TrayIcon:
 
     def run(self):
         """Start daemon threads, then run GTK main loop (blocks)."""
-        self.daemon.start()
+        try:
+            self.daemon.start()
+        except HotkeyBackendUnavailableError as exc:
+            self._set_switch_status(
+                f"Push-to-talk not active yet: {exc}. Open Push-to-Talk to retry authorization."
+            )
+            print(f"Hotkey backend unavailable: {exc}", file=sys.stderr)
 
         # Allow Ctrl+C to quit from terminal
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self._sigint)
 
         print("dictate running (tray icon active)", file=sys.stderr)
-        print("  Hold Right Ctrl to dictate", file=sys.stderr)
+        print(
+            f"  Hold {format_hotkey_combo(self.daemon.push_to_talk_combo)} to dictate",
+            file=sys.stderr,
+        )
         Gtk.main()
 
     def _sigint(self):

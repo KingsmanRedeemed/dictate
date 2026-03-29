@@ -45,6 +45,7 @@ from dictate.outputs import (
     ClipboardOutput,
     OutputError,
     StdoutOutput,
+    detect_session_type,
     resolve_typing_backend,
 )
 from dictate.stt import (
@@ -282,7 +283,7 @@ def _resolve_startup_stt(
     backend_flag = _flag_in_args(cli_args, "--stt-backend")
     model_flag = _flag_in_args(cli_args, "--model")
     if not backend_flag and not model_flag and config.stt_backend in STT_BACKENDS:
-        model_name = resolve_model_name(config.stt_backend, config.stt_model)
+        model_name = _resolve_saved_model_name(config.stt_backend, config.stt_model)
         print(
             f"Using saved STT selection: backend='{config.stt_backend}' model='{model_name}'",
             file=sys.stderr,
@@ -293,7 +294,39 @@ def _resolve_startup_stt(
             f"Ignoring invalid saved STT backend '{config.stt_backend}' in config.",
             file=sys.stderr,
         )
-    return (args.stt_backend, resolve_model_name(args.stt_backend, args.model))
+    backend: SttBackend = args.stt_backend
+    model_name = _resolve_saved_model_name(backend, args.model)
+    if not backend_flag and not model_flag and args.model is None:
+        print(
+            f"Using automatic STT selection: backend='{backend}' model='{model_name}'",
+            file=sys.stderr,
+        )
+    return (backend, model_name)
+
+
+def _resolve_saved_model_name(backend: SttBackend, configured_model: str | None) -> str:
+    if configured_model:
+        return resolve_model_name(backend, configured_model)
+    return _default_model_for_backend(backend)
+
+
+def _default_model_for_backend(backend: SttBackend) -> str:
+    if backend == "faster-whisper":
+        if _cuda_available_for_faster_whisper():
+            return "turbo"
+        return "base"
+    return resolve_model_name(backend, None)
+
+
+def _cuda_available_for_faster_whisper() -> bool:
+    try:
+        import ctranslate2
+    except Exception:  # noqa: BLE001
+        return False
+    try:
+        return int(ctranslate2.get_cuda_device_count()) > 0
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _resolve_startup_runtime(
@@ -400,6 +433,14 @@ def _resolve_startup_push_to_talk_combo(
         else:
             print(f"Using saved push-to-talk combo: {format_hotkey_combo(combo)}", file=sys.stderr)
             return combo
+    combo = _default_push_to_talk_combo()
+    print(f"Using default push-to-talk combo: {format_hotkey_combo(combo)}", file=sys.stderr)
+    return combo
+
+
+def _default_push_to_talk_combo() -> str:
+    if detect_session_type() == "wayland":
+        return normalize_push_to_talk_combo("ctrl+space")
     return normalize_push_to_talk_combo(DEFAULT_PUSH_TO_TALK_COMBO)
 
 

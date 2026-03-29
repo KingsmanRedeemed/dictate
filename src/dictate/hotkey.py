@@ -94,6 +94,10 @@ def normalize_push_to_talk_combo(value: str | None) -> str:
     return parse_hotkey_combo(value).combo
 
 
+def normalize_hotkey_token(value: str, *, allow_character: bool = False) -> str:
+    return _normalize_hotkey_token(value, allow_character=allow_character)
+
+
 def parse_hotkey_combo(value: str | None) -> ParsedHotkey:
     raw = (value or DEFAULT_PUSH_TO_TALK_COMBO).strip().lower()
     if not raw:

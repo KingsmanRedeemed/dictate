@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import unittest
+from unittest.mock import patch
 
 from dictate import __main__ as main_module
 from dictate.config import Config
@@ -41,15 +42,61 @@ class MainSttSelectionTests(unittest.TestCase):
         parser = main_module.build_parser()
         args = parser.parse_args([])
 
-        with contextlib.redirect_stderr(io.StringIO()):
-            backend, model = main_module._resolve_startup_stt(
-                args=args,
-                cli_args=[],
-                config=Config(stt_backend="not-a-backend", stt_model="x"),
-            )
+        with patch.object(main_module, "_cuda_available_for_faster_whisper", return_value=False):
+            with contextlib.redirect_stderr(io.StringIO()):
+                backend, model = main_module._resolve_startup_stt(
+                    args=args,
+                    cli_args=[],
+                    config=Config(stt_backend="not-a-backend", stt_model="x"),
+                )
 
         self.assertEqual(backend, "faster-whisper")
         self.assertEqual(model, "base")
+
+    def test_default_startup_stt_prefers_turbo_when_cuda_is_available(self) -> None:
+        parser = main_module.build_parser()
+        args = parser.parse_args([])
+
+        with patch.object(main_module, "_cuda_available_for_faster_whisper", return_value=True):
+            with contextlib.redirect_stderr(io.StringIO()):
+                backend, model = main_module._resolve_startup_stt(
+                    args=args,
+                    cli_args=[],
+                    config=Config(),
+                )
+
+        self.assertEqual(backend, "faster-whisper")
+        self.assertEqual(model, "turbo")
+
+    def test_default_startup_stt_prefers_base_when_cuda_is_unavailable(self) -> None:
+        parser = main_module.build_parser()
+        args = parser.parse_args([])
+
+        with patch.object(main_module, "_cuda_available_for_faster_whisper", return_value=False):
+            with contextlib.redirect_stderr(io.StringIO()):
+                backend, model = main_module._resolve_startup_stt(
+                    args=args,
+                    cli_args=[],
+                    config=Config(),
+                )
+
+        self.assertEqual(backend, "faster-whisper")
+        self.assertEqual(model, "base")
+
+    def test_saved_backend_without_model_uses_auto_recommended_model(self) -> None:
+        parser = main_module.build_parser()
+        args = parser.parse_args([])
+
+        with patch.object(main_module, "_cuda_available_for_faster_whisper", return_value=True):
+            with contextlib.redirect_stderr(io.StringIO()):
+                backend, model = main_module._resolve_startup_stt(
+                    args=args,
+                    cli_args=[],
+                    config=Config(stt_backend="faster-whisper"),
+                )
+
+        self.assertEqual(backend, "faster-whisper")
+        self.assertEqual(model, "turbo")
 
     def test_saved_runtime_profile_used_when_cli_does_not_override(self) -> None:
         parser = main_module.build_parser()
@@ -157,6 +204,34 @@ class MainSttSelectionTests(unittest.TestCase):
             )
 
         self.assertEqual(hotkey, "ctrl+space")
+
+    def test_wayland_default_push_to_talk_combo_prefers_ctrl_space(self) -> None:
+        parser = main_module.build_parser()
+        args = parser.parse_args([])
+
+        with patch.object(main_module, "detect_session_type", return_value="wayland"):
+            with contextlib.redirect_stderr(io.StringIO()):
+                hotkey = main_module._resolve_startup_push_to_talk_combo(
+                    args=args,
+                    cli_args=[],
+                    config=Config(),
+                )
+
+        self.assertEqual(hotkey, "ctrl+space")
+
+    def test_x11_default_push_to_talk_combo_stays_right_ctrl(self) -> None:
+        parser = main_module.build_parser()
+        args = parser.parse_args([])
+
+        with patch.object(main_module, "detect_session_type", return_value="x11"):
+            with contextlib.redirect_stderr(io.StringIO()):
+                hotkey = main_module._resolve_startup_push_to_talk_combo(
+                    args=args,
+                    cli_args=[],
+                    config=Config(),
+                )
+
+        self.assertEqual(hotkey, "ctrl_r")
 
 
 if __name__ == "__main__":
