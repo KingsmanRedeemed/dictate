@@ -114,6 +114,7 @@ class Daemon:
         if self._stop.is_set():
             return
 
+        self.active = False
         self._stop.set()
 
         if self.recorder.is_recording:

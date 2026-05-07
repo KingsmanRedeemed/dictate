@@ -82,6 +82,20 @@ class DaemonHistoryTests(unittest.TestCase):
             self.assertEqual(len(entries), 1)
             self.assertEqual(entries[0].text, "saved anyway")
 
+    def test_shutdown_disables_hotkey_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon, _store, _output = self._make_daemon(tmp)
+            backend = MagicMock()
+            daemon._hotkey_backend = backend
+
+            daemon.shutdown()
+
+            self.assertFalse(daemon.active)
+            self.assertTrue(daemon._stop.is_set())
+            self.assertIsNone(daemon._hotkey_backend)
+            backend.stop.assert_called_once_with()
+            self.assertIsNone(daemon._audio_queue.get_nowait())
+
 
 if __name__ == "__main__":
     unittest.main()

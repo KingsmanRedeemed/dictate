@@ -1073,8 +1073,9 @@ class TrayIcon:
             )
             print(f"Hotkey backend unavailable: {exc}", file=sys.stderr)
 
-        # Allow Ctrl+C to quit from terminal
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self._sigint)
+        # Allow terminal or launcher shutdown signals to exit cleanly.
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self._quit_from_signal)
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, self._quit_from_signal)
 
         print("dictate running (tray icon active)", file=sys.stderr)
         print(
@@ -1083,6 +1084,6 @@ class TrayIcon:
         )
         Gtk.main()
 
-    def _sigint(self):
+    def _quit_from_signal(self):
         self._on_quit(None)
         return GLib.SOURCE_REMOVE
