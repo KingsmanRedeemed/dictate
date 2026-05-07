@@ -56,7 +56,7 @@ Out of scope:
 
 ### 3) Persistence rules
 
-1. Storage path: `~/.local/share/dictate/recent-history.json`.
+1. Storage path: platform data directory (`~/.local/share/dictate/recent-history.json` on Linux, `%LOCALAPPDATA%\dictate\recent-history.json` on Windows).
 2. File format: JSON with explicit version field and entry list.
 3. Writes should be atomic (`tmp + replace`) to avoid partial corruption.
 4. If file is missing/corrupt/unreadable, fallback to empty history without crashing.
@@ -85,7 +85,7 @@ Suggested JSON shape:
    - timestamp (human-readable local time),
    - short preview (single line, ellipsis when long),
    - `Copy` action.
-4. Copy action places full text into clipboard (`xclip` via existing output helper).
+4. Copy action places full text into clipboard via the existing output helper.
 5. If clipboard backend is unavailable, show actionable error dialog (do not crash daemon/tray).
 6. If no entries exist, show explicit empty state text.
 
@@ -141,7 +141,7 @@ Recommended implementation sketch:
 1. Run tray mode, dictate four times, confirm only latest three shown.
 2. Copy each history item and verify clipboard contents match full text.
 3. Simulate wrong target/lost text, recover from history dialog.
-4. Confirm app does not crash if `xclip` is missing; error is shown.
+4. Confirm app does not crash if the clipboard backend is missing; error is shown.
 
 ## Acceptance criteria
 
@@ -180,11 +180,11 @@ Goal:
 - Clicking a history item must copy full text to clipboard for recovery.
 
 Requirements:
-1. Add persistent history store at ~/.local/share/dictate/recent-history.json.
+1. Add persistent history store in the platform data directory.
 2. Capture successful transcriptions in daemon before output send.
 3. Add tray menu item "Recent History..." and GTK dialog showing up to 3 recent entries.
 4. Each entry shows short preview + timestamp and has a Copy action.
-5. Clipboard copy uses existing output mechanism (xclip path) and shows errors gracefully.
+5. Clipboard copy uses existing output mechanism and shows errors gracefully.
 6. Do not change default dictation flow or make clipboard a startup hard dependency for tray mode.
 7. Add unit tests for history store + daemon integration behavior.
 

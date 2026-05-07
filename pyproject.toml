@@ -1,7 +1,7 @@
 [project]
 name = "dictate"
-version = "0.1.0"
-description = "Local voice-to-text for the terminal. Record, transcribe, type."
+version = "2026.5.7.post1"
+description = "Local voice-to-text for desktop dictation. Record, transcribe, type."
 requires-python = ">=3.11"
 license = { text = "MIT" }
 
@@ -16,6 +16,7 @@ gpu = ["torch>=2.4.0"]
 nemo = ["nemo_toolkit[asr]>=2.4.0"]
 x11 = ["pynput>=1.7.0"]
 wayland = ["evdev>=1.9.0"]
+windows = ["pynput>=1.7.0", "pyperclip>=1.9.0"]
 
 [project.scripts]
 dictate = "dictate.__main__:main_with_logging"

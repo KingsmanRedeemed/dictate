@@ -8,8 +8,10 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dictate.platform_paths import user_data_dir
+
 MAX_ENTRIES = 3
-HISTORY_PATH = Path.home() / ".local" / "share" / "dictate" / "recent-history.json"
+HISTORY_PATH = user_data_dir() / "recent-history.json"
 
 
 @dataclass(slots=True)

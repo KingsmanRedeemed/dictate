@@ -9,10 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-LOG_DIR = Path.home() / ".local" / "share" / "dictate" / "logs"
+from dictate.platform_paths import fallback_log_dir, user_data_dir
+
+LOG_DIR = user_data_dir() / "logs"
 LATEST_LOG_PATH = LOG_DIR / "latest.log"
 LAST_FAILURE_LOG_PATH = LOG_DIR / "last_failure.log"
-FALLBACK_LOG_DIR = Path("/tmp") / "dictate-logs"
+FALLBACK_LOG_DIR = fallback_log_dir()
 
 
 class _TeeStderr:

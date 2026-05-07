@@ -1,4 +1,4 @@
-"""Load dictate config from ~/.config/dictate/config.yaml."""
+"""Load dictate config from the platform-specific user config path."""
 
 from __future__ import annotations
 
@@ -9,10 +9,11 @@ from pathlib import Path
 import yaml
 
 from dictate.hotkey import normalize_push_to_talk_combo
+from dictate.platform_paths import user_config_dir
 
 logger = logging.getLogger(__name__)
 
-CONFIG_PATH = Path.home() / ".config" / "dictate" / "config.yaml"
+CONFIG_PATH = user_config_dir() / "config.yaml"
 
 
 @dataclass(slots=True)

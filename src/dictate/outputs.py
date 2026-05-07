@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -25,6 +26,10 @@ class TextOutput(Protocol):
 
 
 def detect_session_type() -> str:
+    if sys.platform.startswith("win"):
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
     session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
     if session_type in {"x11", "wayland"}:
         return session_type
@@ -52,15 +57,35 @@ class ClipboardOutput:
     name: str = "clipboard"
 
     def send(self, text: str) -> None:
+        if sys.platform.startswith("win"):
+            try:
+                import pyperclip
+
+                pyperclip.copy(text)
+                return
+            except ImportError:
+                pass
+            except Exception as exc:  # noqa: BLE001
+                raise OutputError(f"clipboard command failed: {exc}") from exc
+
+        if command_exists("xclip"):
+            try:
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=text.encode(),
+                    check=True,
+                )
+                return
+            except subprocess.CalledProcessError as exc:
+                raise OutputError(f"clipboard command failed: {exc}") from exc
+
         try:
-            subprocess.run(
-                ["xclip", "-selection", "clipboard"],
-                input=text.encode(),
-                check=True,
-            )
-        except FileNotFoundError as exc:
-            raise OutputError("xclip is not installed") from exc
-        except subprocess.CalledProcessError as exc:
+            import pyperclip
+
+            pyperclip.copy(text)
+        except ImportError as exc:
+            raise OutputError("no clipboard backend found; install xclip or pyperclip") from exc
+        except Exception as exc:  # noqa: BLE001
             raise OutputError(f"clipboard command failed: {exc}") from exc
 
 
@@ -106,10 +131,42 @@ class YdotoolOutput:
             raise OutputError(f"ydotool failed: {exc}") from exc
 
 
+@dataclass(slots=True)
+class PynputOutput:
+    name: str = "pynput"
+
+    def send(self, text: str) -> None:
+        try:
+            from pynput.keyboard import Controller
+        except ImportError as exc:
+            raise OutputError("pynput is not installed") from exc
+        try:
+            Controller().type(text)
+        except Exception as exc:  # noqa: BLE001
+            raise OutputError(f"pynput failed: {exc}") from exc
+
+
+def python_module_available(module_name: str) -> bool:
+    try:
+        __import__(module_name)
+    except ImportError:
+        return False
+    return True
+
+
+def clipboard_backend_available() -> bool:
+    if command_exists("xclip"):
+        return True
+    return python_module_available("pyperclip")
+
+
 def available_typing_backends() -> list[str]:
     backends: list[str] = []
-    for backend in ("xdotool", "wtype", "ydotool"):
-        if command_exists(backend):
+    for backend in ("xdotool", "wtype", "ydotool", "pynput"):
+        if backend == "pynput":
+            if python_module_available("pynput"):
+                backends.append(backend)
+        elif command_exists(backend):
             backends.append(backend)
     return backends
 
@@ -121,12 +178,18 @@ def _build_typing_output(backend: str) -> TextOutput:
         return WtypeOutput()
     if backend == "ydotool":
         return YdotoolOutput()
+    if backend == "pynput":
+        return PynputOutput()
     raise BackendUnavailableError(f"unknown typing backend: {backend}")
 
 
 def resolve_typing_backend(preferred: str = "auto") -> TextOutput:
     """Pick a typing backend based on session type and availability."""
     if preferred != "auto":
+        if preferred == "pynput":
+            if not python_module_available("pynput"):
+                raise BackendUnavailableError("requested typing backend 'pynput' is not installed")
+            return PynputOutput()
         if not command_exists(preferred):
             raise BackendUnavailableError(
                 f"requested typing backend '{preferred}' is not installed"
@@ -134,17 +197,22 @@ def resolve_typing_backend(preferred: str = "auto") -> TextOutput:
         return _build_typing_output(preferred)
 
     session = detect_session_type()
-    if session == "wayland":
+    if session == "windows":
+        candidates = ["pynput"]
+    elif session == "wayland":
         candidates = ["wtype", "ydotool", "xdotool"]
     elif session == "x11":
         candidates = ["xdotool", "wtype", "ydotool"]
     else:
-        candidates = ["xdotool", "wtype", "ydotool"]
+        candidates = ["xdotool", "wtype", "ydotool", "pynput"]
 
     for candidate in candidates:
-        if command_exists(candidate):
+        if candidate == "pynput":
+            if python_module_available("pynput"):
+                return PynputOutput()
+        elif command_exists(candidate):
             return _build_typing_output(candidate)
 
     raise BackendUnavailableError(
-        "no typing backend found; install one of: xdotool, wtype, ydotool"
+        "no typing backend found; install one of: xdotool, wtype, ydotool, pynput"
     )

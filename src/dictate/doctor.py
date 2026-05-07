@@ -42,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--type-backend",
-        choices=["auto", "xdotool", "wtype", "ydotool"],
+        choices=["auto", "xdotool", "wtype", "ydotool", "pynput"],
         default="auto",
         help="Typing backend to validate",
     )
@@ -161,6 +161,27 @@ def _print_report(report) -> None:  # noqa: ANN001
 
 
 def _desktop_entry_path() -> Path:
+    if sys.platform.startswith("win"):
+        start_menu = os.environ.get("APPDATA")
+        if start_menu:
+            return (
+                Path(start_menu)
+                / "Microsoft"
+                / "Windows"
+                / "Start Menu"
+                / "Programs"
+                / "Dictate.lnk"
+            )
+        return (
+            Path.home()
+            / "AppData"
+            / "Roaming"
+            / "Microsoft"
+            / "Windows"
+            / "Start Menu"
+            / "Programs"
+            / "Dictate.lnk"
+        )
     xdg_data_home = os.environ.get("XDG_DATA_HOME")
     base = Path(xdg_data_home) if xdg_data_home else Path.home() / ".local" / "share"
     return base / "applications" / "dictate.desktop"

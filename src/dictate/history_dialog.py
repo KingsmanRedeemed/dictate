@@ -83,7 +83,7 @@ class RecentHistoryDialog(Gtk.Dialog):
                 text="Clipboard copy failed",
             )
             dialog.format_secondary_text(
-                f"{exc}\n\nMake sure xclip is installed (e.g. sudo apt install xclip)."
+                f"{exc}\n\nMake sure a clipboard backend is installed (xclip or pyperclip)."
             )
             dialog.run()
             dialog.destroy()

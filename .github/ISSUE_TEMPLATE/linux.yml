@@ -1,0 +1,27 @@
+name: Linux issue
+description: Track a Linux runtime, tray, hotkey, or packaging issue.
+title: "[Linux] "
+labels: ["platform:linux"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Dictate version
+      placeholder: "2026.5.7-1"
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop/session
+      placeholder: "GNOME Wayland, KDE X11, etc."
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Include output from `~/.local/share/dictate/logs/latest.log` when available.

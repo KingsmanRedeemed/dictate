@@ -58,21 +58,28 @@ from dictate.stt import (
     create_speech_to_text,
     resolve_model_name,
 )
+from dictate.version import RELEASE_VERSION
 
 SAMPLE_RATE = 16000
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
+        prog="dictate",
         description="Local voice-to-text for the terminal",
         epilog="Diagnostics: dictate benchmark --help | dictate doctor --help",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {RELEASE_VERSION}",
     )
     parser.add_argument(
         "--once",
         action="store_true",
         help="One-shot mode: record until Enter, output text, exit",
     )
-    parser.add_argument("--copy", action="store_true", help="One-shot: copy to clipboard (xclip)")
+    parser.add_argument("--copy", action="store_true", help="One-shot: copy to clipboard")
     parser.add_argument(
         "--no-tray",
         action="store_true",
@@ -80,9 +87,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--type-backend",
-        choices=["auto", "xdotool", "wtype", "ydotool"],
+        choices=["auto", "xdotool", "wtype", "ydotool", "pynput"],
         default="auto",
-        help="Typing backend for daemon mode (default: auto)",
+        help="Typing backend for daemon mode (default: auto; Windows uses pynput)",
     )
     parser.add_argument(
         "--stt-backend",

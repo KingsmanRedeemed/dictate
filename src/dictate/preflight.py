@@ -12,7 +12,7 @@ from dictate.hotkey_backend import (
 )
 from dictate.outputs import (
     BackendUnavailableError,
-    command_exists,
+    clipboard_backend_available,
     detect_session_type,
     resolve_typing_backend,
 )
@@ -164,5 +164,5 @@ def _check_typing(
 def _check_clipboard(report: PreflightReport, *, require_clipboard: bool) -> None:
     if not require_clipboard:
         return
-    if not command_exists("xclip"):
-        report.errors.append("xclip is not installed (required for --copy).")
+    if not clipboard_backend_available():
+        report.errors.append("no clipboard backend found; install xclip or pyperclip.")

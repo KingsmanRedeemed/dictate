@@ -1,8 +1,8 @@
 # dictate
 
-Local voice-to-text for Linux: hold `Right Ctrl`, speak, release to transcribe and type into the focused window.
+Local voice-to-text for desktop dictation: hold `Right Ctrl`, speak, release to transcribe and type into the focused window.
 
-This is intended to be an always-available desktop utility (tray icon) and a CLI-friendly one-shot recorder.
+Linux is the primary tray desktop. Windows 11 is supported as a separate headless compatibility stream.
 
 ## Features
 
@@ -17,18 +17,20 @@ This is intended to be an always-available desktop utility (tray icon) and a CLI
 - Tray menu STT switcher (change backend/model without restart).
 - Tray runtime profile switcher (device/compute tuning without restart).
 - One-shot mode for terminal workflows (print to stdout or copy to clipboard).
-- Typing backend auto-selection (`xdotool` on X11, `wtype`/`ydotool` on Wayland if installed).
+- Typing backend auto-selection (`xdotool` on X11, `wtype`/`ydotool` on Wayland, `pynput` on Windows).
 - Explicit backend resource release on switch (including CUDA cache cleanup when switching away from NeMo Canary).
 
 ## Requirements
 
 - Linux (X11 recommended; Wayland supported depending on typing backend and hotkey support).
+- Windows 11 for headless push-to-talk and one-shot modes.
 - Python >= 3.11.
 - Microphone/audio: `sounddevice` + a working PortAudio setup.
 - Typing backend (for daemon modes):
   - X11: `xdotool` (recommended)
   - Wayland: `wtype` or `ydotool`
-- Clipboard (for `--once --copy`): `xclip`
+  - Windows 11: `pynput`
+- Clipboard (for `--once --copy`): `xclip` on Linux or `pyperclip` on Windows.
 - Tray icon dependencies (for default tray mode):
   - GTK + GI bindings (`python3-gi`)
   - Ayatana indicator bindings (`gir1.2-ayatanaappindicator3-0.1` or equivalent for your distro)
@@ -47,13 +49,21 @@ Generic repo install (assumes OS packages and `uv` are already present):
 ./install.sh
 ```
 
-`install.sh` seeds `~/.config/dictate/config.yaml` from [`config/default-config.yaml`](config/default-config.yaml) on first install and prepares the `faster-whisper/turbo` model by default. Existing user config is left untouched.
+`install.sh` seeds the Linux config file from [`config/default-config.yaml`](config/default-config.yaml) on first install and prepares the `faster-whisper/turbo` model by default. Existing user config is left untouched.
 
 Installer verification/model preparation can be skipped if needed:
 
 ```bash
 ./install.sh --no-verify --no-prepare-turbo
 ```
+
+Windows 11 install from PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
+```
+
+This creates `.venv`, installs the Windows dependencies, seeds config, writes launcher scripts, prepares the default model, runs diagnostics, and installs a Start Menu shortcut named `Dictate`. See [Windows 11 support](docs/windows-11.md) for the supported Windows surface and current gaps.
 
 Optional: install NVIDIA NeMo backend dependencies in your active environment:
 
@@ -160,6 +170,7 @@ Force typing backend (daemon modes):
 dictate --type-backend xdotool
 dictate --type-backend wtype
 dictate --type-backend ydotool
+dictate --type-backend pynput
 ```
 
 ## Hotwords
@@ -175,7 +186,7 @@ dictate --remove-hotword Vikunja
 dictate --list-hotwords
 ```
 
-Hotwords are saved to `~/.config/dictate/config.yaml`. Fresh installs created through the repo installer seed this file from [`config/default-config.yaml`](config/default-config.yaml).
+Hotwords are saved to the platform config file. On Linux this is usually `~/.config/dictate/config.yaml`; on Windows this is `%APPDATA%\dictate\config.yaml`. Fresh installs created through the repo installer seed this file from [`config/default-config.yaml`](config/default-config.yaml).
 
 You can also pass one-off hotwords without saving them:
 
@@ -217,7 +228,7 @@ dictate --list-lexicon-replacements
 
 **Hold Right Ctrl** to record, **release** to transcribe and type into the focused window.
 
-If your desktop or keyboard reports `Right Ctrl` unreliably, set this in `~/.config/dictate/config.yaml`:
+If your desktop or keyboard reports `Right Ctrl` unreliably, set this in your platform config file:
 
 ```yaml
 push_to_talk_combo: ctrl_l
@@ -244,7 +255,7 @@ Runtime profile presets currently shipped in tray:
 ## Notes And Troubleshooting
 
 - First run will likely download model files (Whisper or NeMo, depending on backend). Network is required once per model.
-- Tray model/profile selections are persisted in `~/.config/dictate/config.yaml` and used on startup unless CLI flags override them.
+- Tray model/profile selections are persisted in the platform config file and used on startup unless CLI flags override them.
 - Persisted STT selection keys:
   - `stt_backend`
   - `stt_model`
@@ -256,17 +267,19 @@ Runtime profile presets currently shipped in tray:
   - `lexicon_replacements` (managed by CLI replacement commands)
 - Preflight now checks STT backend readiness (dependency imports + CUDA visibility) before model load.
 - Startup stderr is mirrored to logs:
-  - latest run: `~/.local/share/dictate/logs/latest.log`
-  - last non-zero exit: `~/.local/share/dictate/logs/last_failure.log`
-  - fallback when home path is not writable: `/tmp/dictate-logs/`
+  - Linux latest run: `~/.local/share/dictate/logs/latest.log`
+  - Linux last non-zero exit: `~/.local/share/dictate/logs/last_failure.log`
+  - Windows logs: `%LOCALAPPDATA%\dictate\logs\`
+  - fallback when home path is not writable: system temp directory `dictate-logs`
 - On Wayland:
   - `xdotool` generally will not work for native Wayland apps.
   - Prefer `wtype` (simple) or `ydotool` (may require extra setup/permissions).
   - Global hotkeys can be restricted on some Wayland compositors; if your combo does not fire, try `push_to_talk_combo: ctrl_l` or `push_to_talk_combo: ctrl+space`, use `--once`, or run an X11 session.
-- If preflight reports missing tools, install them via your distro package manager (e.g. `xdotool`, `xclip`, `wtype`).
+- On Windows 11, use `dictate --no-tray --type-backend pynput` or one-shot mode; the Linux tray is not part of the Windows stream.
+- If preflight reports missing tools, install them via your distro package manager (e.g. `xdotool`, `xclip`, `wtype`) or install the Windows extra with `pip install -e ".[windows]"`.
 - Dictation uses the system default microphone input device. If your default input is misconfigured, fix it in your OS audio settings.
 - If NeMo backend fails to load, install optional deps with `uv pip install -e ".[nemo]"`.
-- If the app does not launch from GUI, run `dictate doctor --quick` and inspect the reported active log directory (`~/.local/share/dictate/logs/` or `/tmp/dictate-logs/`).
+- If the app does not launch from GUI, run `dictate doctor --quick` and inspect the reported active log directory.
 
 ## Benchmarking
 
@@ -307,6 +320,10 @@ uv run python -m unittest discover -s tests
   - typing/clipboard outputs: `src/dictate/outputs.py`
   - environment checks: `src/dictate/preflight.py`
   - STT backends + registry: `src/dictate/stt/`
+- Platform docs:
+  - Windows 11 stream: `docs/windows-11.md`
+  - Development streams: `docs/development-streams.md`
+  - CalVer releases: `docs/release-versioning.md`
 
 ## License
 
