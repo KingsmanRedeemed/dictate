@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,7 +53,7 @@ class HistoryStore:
 
     def append(self, text: str) -> None:
         now = datetime.now(timezone.utc).isoformat()
-        entry = HistoryEntry(id=now, created_at=now, text=text)
+        entry = HistoryEntry(id=f"{now}-{uuid.uuid4().hex}", created_at=now, text=text)
         entries = [entry, *self.load()][:MAX_ENTRIES]
         self._save(entries)
 
