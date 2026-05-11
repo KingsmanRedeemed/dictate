@@ -29,12 +29,12 @@ Use GitHub labels such as `platform:windows`, `area:windows-tray`, `area:install
 
 ## Branching
 
-- `main`: release-ready integration branch for both streams.
+- `master`: release-ready integration branch for both streams.
 - `linux/*`: Linux-specific work.
 - `windows/*`: Windows-specific work.
 - `release/YYYY.M.D-N`: release stabilization branch when a release needs final fixes.
 
-Keep shared STT, audio, config, history, and CLI behavior on `main` unless the change is explicitly platform-specific.
+Keep shared STT, audio, config, history, and CLI behavior on `master` unless the change is explicitly platform-specific.
 
 Windows installation is intentionally implemented as a packaging edge around the shared app. The PowerShell installer should stay thin: create the environment, install `.[windows]`, seed config, write launchers, create shortcuts, and run diagnostics. Shared behavior should stay in `src/dictate`.
 
