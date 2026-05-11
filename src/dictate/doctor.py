@@ -14,7 +14,13 @@ from dictate.runtime_logging import (
     LOG_DIR,
     resolve_log_paths,
 )
-from dictate.stt import NEMO_CANARY_MODELS, STT_BACKENDS, create_speech_to_text, resolve_model_name
+from dictate.stt import (
+    NEMO_CANARY_MODELS,
+    STT_BACKENDS,
+    WHISPER_CPP_MODELS,
+    create_speech_to_text,
+    resolve_model_name,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,7 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Model name override for diagnosis. "
             "faster-whisper examples: base, turbo, large-v3-turbo. "
-            f"nemo-canary examples: {', '.join(NEMO_CANARY_MODELS)}."
+            f"nemo-canary examples: {', '.join(NEMO_CANARY_MODELS)}. "
+            f"whisper-cpp examples: {', '.join(WHISPER_CPP_MODELS)}."
         ),
     )
     parser.add_argument(

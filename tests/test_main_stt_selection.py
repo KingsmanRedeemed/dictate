@@ -98,6 +98,20 @@ class MainSttSelectionTests(unittest.TestCase):
         self.assertEqual(backend, "faster-whisper")
         self.assertEqual(model, "turbo")
 
+    def test_whisper_cpp_backend_without_model_uses_local_turbo_default(self) -> None:
+        parser = main_module.build_parser()
+        args = parser.parse_args([])
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            backend, model = main_module._resolve_startup_stt(
+                args=args,
+                cli_args=[],
+                config=Config(stt_backend="whisper-cpp"),
+            )
+
+        self.assertEqual(backend, "whisper-cpp")
+        self.assertEqual(model, "large-v3-turbo-q5_0")
+
     def test_saved_runtime_profile_used_when_cli_does_not_override(self) -> None:
         parser = main_module.build_parser()
         args = parser.parse_args([])

@@ -11,6 +11,7 @@ Usage:
     dictate doctor ...        Diagnose environment/runtime setup
     dictate prepare-model ... Prepare/download a model before activation
     dictate --stt-backend nemo-canary --model nvidia/canary-1b-flash
+    dictate --stt-backend whisper-cpp --model large-v3-turbo-q5_0
     dictate --type-backend wtype  Force typing backend for daemon mode
     dictate --model large-v3-turbo  Use a different STT model
     dictate --add-hotword X   Save a hotword for improved recognition
@@ -56,6 +57,7 @@ from dictate.stt import (
     STT_BACKENDS,
     SpeechToText,
     SttBackend,
+    WHISPER_CPP_MODELS,
     create_speech_to_text,
     resolve_model_name,
 )
@@ -104,7 +106,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Model name. "
             "faster-whisper examples: turbo, large-v3-turbo, large-v3. "
-            f"nemo-canary examples: {', '.join(NEMO_CANARY_MODELS)}."
+            f"nemo-canary examples: {', '.join(NEMO_CANARY_MODELS)}. "
+            f"whisper-cpp examples: {', '.join(WHISPER_CPP_MODELS)}."
         ),
     )
     parser.add_argument(
