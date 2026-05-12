@@ -3,10 +3,33 @@ from __future__ import annotations
 import contextlib
 import io
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import numpy as np
 
 from dictate import __main__ as main_module
 from dictate.config import Config
+from dictate.stt import SttCapabilities
+
+
+class FakeOnceStt:
+    backend_name = "fake"
+    model_name = "fake-model"
+    capabilities = SttCapabilities(supports_language_hint=True)
+
+    def __init__(self) -> None:
+        self.released = False
+
+    @property
+    def model(self):
+        return object()
+
+    def transcribe(self, audio, language=None, hotwords=None, prompt_context=None) -> str:
+        del audio, language, hotwords, prompt_context
+        return "hello"
+
+    def release(self) -> None:
+        self.released = True
 
 
 class MainSttSelectionTests(unittest.TestCase):
@@ -153,6 +176,27 @@ class MainSttSelectionTests(unittest.TestCase):
 
         self.assertEqual(device, "auto")
         self.assertEqual(compute_type, "int8")
+
+    def test_run_once_releases_stt_resources(self) -> None:
+        stt = FakeOnceStt()
+        output = Mock()
+
+        with patch("dictate.audio.SoundDeviceRecorder"):
+            with patch(
+                "dictate.__main__.record_until_enter",
+                return_value=np.ones(16000, dtype=np.float32),
+            ):
+                with patch("dictate.__main__.StdoutOutput", return_value=output):
+                    main_module._run_once(
+                        stt,
+                        copy_to_clipboard=False,
+                        language=None,
+                        hotwords=None,
+                        lexicon_mode="native",
+                        lexicon_replacements=None,
+                    )
+
+        self.assertTrue(stt.released)
 
     def test_saved_lexicon_mode_used_when_cli_does_not_override(self) -> None:
         parser = main_module.build_parser()

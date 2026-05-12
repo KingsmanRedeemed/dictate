@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, PropertyMock, patch
 
 import numpy as np
 
@@ -62,6 +62,51 @@ class WhisperCppBackendTests(unittest.TestCase):
         self.assertEqual(stt.backend_name, "whisper-cpp")
         self.assertEqual(stt.transcribe.__name__, "transcribe")
         self.assertEqual(np.zeros(16000, dtype=np.float32).dtype, np.float32)
+
+    def test_transcribe_uses_auto_language_when_language_is_omitted(self) -> None:
+        captured_fields: dict[str, str] = {}
+
+        def fake_post_multipart(**kwargs) -> str:
+            captured_fields.update(kwargs["fields"])
+            return '{"text": "hello"}'
+
+        with patch.object(
+            WhisperCppSpeechToText,
+            "model",
+            new_callable=PropertyMock,
+            return_value=(Path("server"), Path("model"), 7777),
+        ):
+            with patch(
+                "dictate.stt.whisper_cpp_backend._post_multipart",
+                side_effect=fake_post_multipart,
+            ):
+                text = WhisperCppSpeechToText().transcribe(
+                    np.zeros(16000, dtype=np.float32),
+                    language=None,
+                )
+
+        self.assertEqual(text, "hello")
+        self.assertEqual(captured_fields["language"], "auto")
+
+    def test_failed_server_start_releases_spawned_process(self) -> None:
+        process = Mock()
+        process.poll.return_value = None
+
+        stt = WhisperCppSpeechToText()
+        with patch("dictate.stt.whisper_cpp_backend._configured_port", return_value=17777):
+            with patch("dictate.stt.whisper_cpp_backend.subprocess.Popen", return_value=process):
+                with patch(
+                    "dictate.stt.whisper_cpp_backend._wait_for_server",
+                    side_effect=RuntimeError("startup failed"),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "startup failed"):
+                        stt._ensure_server_started(
+                            server_path=Path("whisper-server.exe"),
+                            model_path=Path("ggml-base.bin"),
+                        )
+
+        process.terminate.assert_called_once()
+        process.wait.assert_called_once_with(timeout=5)
 
 
 if __name__ == "__main__":

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import json
+import os
 import socket
 import subprocess
 import tempfile
@@ -78,8 +78,7 @@ class WhisperCppSpeechToText(SpeechToText):
                 "temperature": "0.0",
                 "suppress_nst": "true",
             }
-            if language:
-                fields["language"] = language
+            fields["language"] = language or "auto"
             if prompt:
                 fields["prompt"] = prompt
 
@@ -134,7 +133,11 @@ class WhisperCppSpeechToText(SpeechToText):
             creationflags=creationflags,
         )
         self._port = port
-        _wait_for_server(port=port, process=self._process)
+        try:
+            _wait_for_server(port=port, process=self._process)
+        except Exception:
+            self.release()
+            raise
 
 
 def resolve_whisper_cpp_server() -> Path:

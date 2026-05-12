@@ -21,9 +21,14 @@ from dictate.hotkey import HotkeyParseError, format_hotkey_combo, normalize_push
 from dictate.outputs import ClipboardOutput, OutputError
 
 BACKEND_CHOICES = ("whisper-cpp", "faster-whisper")
+DEFAULT_BACKEND = "faster-whisper"
 MODEL_CHOICES = {
     "whisper-cpp": ("large-v3-turbo-q5_0", "large-v3-turbo-q8_0"),
     "faster-whisper": ("tiny", "base", "turbo"),
+}
+DEFAULT_MODELS = {
+    "whisper-cpp": "large-v3-turbo-q5_0",
+    "faster-whisper": "base",
 }
 DEVICE_CHOICES = ("cpu", "auto")
 COMPUTE_CHOICES = ("int8", "float32")
@@ -46,8 +51,8 @@ class ControlPanel:
         self.root.after(1500, lambda: self.root.attributes("-topmost", False))
 
         self.status_var = tk.StringVar(value="")
-        self.backend_var = tk.StringVar(value="whisper-cpp")
-        self.model_var = tk.StringVar(value="large-v3-turbo-q5_0")
+        self.backend_var = tk.StringVar(value=DEFAULT_BACKEND)
+        self.model_var = tk.StringVar(value=DEFAULT_MODELS[DEFAULT_BACKEND])
         self.device_var = tk.StringVar(value="cpu")
         self.compute_var = tk.StringVar(value="int8")
         self.combo_var = tk.StringVar(value="ctrl_r")
@@ -137,11 +142,12 @@ class ControlPanel:
 
     def refresh(self) -> None:
         config = load_config()
-        backend = config.stt_backend if config.stt_backend in BACKEND_CHOICES else "whisper-cpp"
+        backend = config.stt_backend if config.stt_backend in BACKEND_CHOICES else DEFAULT_BACKEND
         self.backend_var.set(backend)
         self._sync_model_choices()
         model_choices = MODEL_CHOICES[backend]
-        self.model_var.set(config.stt_model if config.stt_model in model_choices else model_choices[0])
+        default_model = DEFAULT_MODELS.get(backend, model_choices[0])
+        self.model_var.set(config.stt_model if config.stt_model in model_choices else default_model)
         self.device_var.set(config.stt_device if config.stt_device in DEVICE_CHOICES else "cpu")
         self.compute_var.set(
             config.stt_compute_type if config.stt_compute_type in COMPUTE_CHOICES else "int8"
@@ -156,11 +162,11 @@ class ControlPanel:
 
     def _sync_model_choices(self) -> None:
         backend = self.backend_var.get()
-        choices = MODEL_CHOICES.get(backend, MODEL_CHOICES["whisper-cpp"])
+        choices = MODEL_CHOICES.get(backend, MODEL_CHOICES[DEFAULT_BACKEND])
         if self.model_box is not None:
             self.model_box.configure(values=choices)
         if self.model_var.get() not in choices:
-            self.model_var.set(choices[0])
+            self.model_var.set(DEFAULT_MODELS.get(backend, choices[0]))
 
     def refresh_history(self) -> None:
         for child in self.history_rows.winfo_children():
