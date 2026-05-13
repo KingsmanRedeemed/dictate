@@ -118,6 +118,7 @@ function Write-LauncherScripts {
 function Install-StartMenuShortcut {
     param(
         [string]$TargetPath,
+        [string]$Arguments = "",
         [string]$WorkingDirectory
     )
 
@@ -135,6 +136,7 @@ function Install-StartMenuShortcut {
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath = $TargetPath
+    $shortcut.Arguments = $Arguments
     $shortcut.WorkingDirectory = $WorkingDirectory
     $shortcut.Description = "Start Dictate push-to-talk"
     $shortcut.Save()
@@ -192,7 +194,10 @@ Invoke-Checked -Exe $venvPython -ArgumentList @("-m", "pip", "install", "-e", "$
 
 Seed-Config
 Write-LauncherScripts -ScriptsDir $scriptsDir
-Install-StartMenuShortcut -TargetPath (Join-Path $scriptsDir "dictate-daemon.cmd") -WorkingDirectory $PSScriptRoot
+Install-StartMenuShortcut `
+    -TargetPath (Join-Path $scriptsDir "dictate.exe") `
+    -Arguments "--no-tray --type-backend pynput" `
+    -WorkingDirectory $PSScriptRoot
 Install-ControlsShortcut -TargetPath (Join-Path $scriptsDir "dictate-controls.exe") -WorkingDirectory $PSScriptRoot
 
 if (-not $NoPrepareTurbo) {

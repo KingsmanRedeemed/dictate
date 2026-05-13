@@ -5,9 +5,12 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
+from dictate.config import Config, load_config
+from dictate.hotkey import HotkeyParseError, normalize_push_to_talk_combo
 from dictate.preflight import run_preflight
 from dictate.runtime_logging import (
     FALLBACK_LOG_DIR,
@@ -72,20 +75,22 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_doctor(argv: Sequence[str] | None = None) -> int:
+    cli_args = list(argv) if argv is not None else sys.argv[1:]
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(cli_args)
 
-    model_name = resolve_model_name(args.stt_backend, args.model)
+    runtime = _resolve_doctor_runtime(args=args, cli_args=cli_args, config=load_config())
 
     report = run_preflight(
         require_typing=True,
         require_clipboard=False,
         typing_backend=args.type_backend,
-        push_to_talk_combo=args.push_to_talk_combo,
-        stt_backend=args.stt_backend,
-        stt_model=model_name,
-        stt_device=args.device,
+        push_to_talk_combo=runtime.push_to_talk_combo,
+        stt_backend=runtime.stt_backend,
+        stt_model=runtime.model_name,
+        stt_device=runtime.device,
     )
+    report.warnings.extend(runtime.warnings)
 
     _check_runtime_paths(report)
 
@@ -93,13 +98,80 @@ def run_doctor(argv: Sequence[str] | None = None) -> int:
     if should_check_model_load:
         _check_model_load(
             report,
-            backend=args.stt_backend,
-            model_name=model_name,
-            device=args.device,
+            backend=runtime.stt_backend,
+            model_name=runtime.model_name,
+            device=runtime.device,
         )
 
     _print_report(report)
     return 0 if report.ok else 2
+
+
+@dataclass(slots=True)
+class DoctorRuntime:
+    stt_backend: str
+    model_name: str
+    device: str
+    push_to_talk_combo: str
+    warnings: list[str] = field(default_factory=list)
+
+
+def _resolve_doctor_runtime(
+    *,
+    args,  # noqa: ANN001
+    cli_args: Sequence[str],
+    config: Config,
+) -> DoctorRuntime:
+    """Resolve doctor defaults the same way normal startup does."""
+    warnings: list[str] = []
+
+    backend = args.stt_backend
+    backend_flag = _flag_in_args(cli_args, "--stt-backend")
+    if not backend_flag and config.stt_backend:
+        if config.stt_backend in STT_BACKENDS:
+            backend = config.stt_backend
+        else:
+            warnings.append(f"Ignoring invalid saved STT backend '{config.stt_backend}' in config.")
+
+    model = args.model
+    model_flag = _flag_in_args(cli_args, "--model")
+    if not model_flag and config.stt_backend == backend and config.stt_model:
+        model = config.stt_model
+    model_name = resolve_model_name(backend, model)
+
+    device = args.device
+    device_flag = _flag_in_args(cli_args, "--device")
+    if not device_flag and config.stt_device:
+        if config.stt_device in {"cpu", "cuda", "auto"}:
+            device = config.stt_device
+        else:
+            warnings.append(f"Ignoring invalid saved STT device '{config.stt_device}' in config.")
+
+    combo = args.push_to_talk_combo
+    combo_flag = _flag_in_args(cli_args, "--push-to-talk-combo")
+    if not combo_flag:
+        saved_combo = config.push_to_talk_combo or config.push_to_talk_key
+        if saved_combo:
+            try:
+                combo = normalize_push_to_talk_combo(saved_combo)
+            except HotkeyParseError:
+                warnings.append(
+                    f"Ignoring invalid saved push-to-talk combo '{saved_combo}' in config."
+                )
+
+    return DoctorRuntime(
+        stt_backend=backend,
+        model_name=model_name,
+        device=device,
+        push_to_talk_combo=combo,
+        warnings=warnings,
+    )
+
+
+def _flag_in_args(cli_args: Sequence[str], name: str) -> bool:
+    if name in cli_args:
+        return True
+    return any(arg.startswith(f"{name}=") for arg in cli_args)
 
 
 def _check_runtime_paths(report) -> None:  # noqa: ANN001
