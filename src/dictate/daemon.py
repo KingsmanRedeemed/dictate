@@ -5,6 +5,7 @@ from __future__ import annotations
 import queue
 import sys
 import threading
+import time
 
 import numpy as np
 
@@ -216,16 +217,23 @@ class Daemon:
 
             duration = len(audio) / SAMPLE_RATE
             print(
-                f"\r  Transcribing {duration:.1f}s...   ",
+                f"\r  Transcribing {duration:.1f}s recording...   ",
                 end="",
                 file=sys.stderr,
                 flush=True,
             )
+            started_at = time.perf_counter()
             with self._engine_lock:
                 result = self.engine.transcribe(audio, language=self.language)
-            self._handle_result(result)
+            processing_s = time.perf_counter() - started_at
+            self._handle_result(result, processing_s=processing_s)
 
-    def _handle_result(self, result: TranscriptionResult) -> None:
+    def _handle_result(
+        self,
+        result: TranscriptionResult,
+        *,
+        processing_s: float | None = None,
+    ) -> None:
         if result.status == "empty":
             print("\r  No audio captured", file=sys.stderr)
             return
@@ -254,4 +262,16 @@ class Daemon:
             print(f"\r  Output backend failed ({self.output.name}): {exc}", file=sys.stderr)
             return
 
-        print(f"\r  Typed: {result.text}", file=sys.stderr)
+        if processing_s is None:
+            print(f"\r  Typed: {result.text}", file=sys.stderr)
+            return
+
+        queue_depth = self._audio_queue.qsize()
+        print(
+            (
+                f"\r  Typed: {result.text} "
+                f"[audio={result.duration_s:.1f}s, processing={processing_s:.1f}s, "
+                f"queued={queue_depth}]"
+            ),
+            file=sys.stderr,
+        )
